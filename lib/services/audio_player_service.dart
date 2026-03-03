@@ -159,20 +159,30 @@ class MusicAudioHandler extends BaseAudioHandler
       );
     }).toList();
 
-    if (_player.speed != 1.0) {
-      await _player.setSpeed(1.0);
+    // Prevent _rebindDecoderAfterTrackChange from firing during playlist setup
+    _rebindAfterTrackChangeInProgress = true;
+    try {
+      if (_player.playing) {
+        await _player.stop();
+      }
+      if (_player.speed != 1.0) {
+        await _player.setSpeed(1.0);
+      }
+      await _player.setAudioSources(
+        _playlistSources,
+        initialIndex: _currentIndex,
+      );
+      _lastReboundIndex = _currentIndex;
+      await _player.setLoopMode(_mapLoopMode(_repeatMode));
+      await _player.setShuffleModeEnabled(_shuffle);
+      if (_shuffle) {
+        await _player.shuffle();
+      }
+      mediaItem.add(mediaItems[_currentIndex]);
+      _broadcastState();
+    } finally {
+      _rebindAfterTrackChangeInProgress = false;
     }
-    await _player.setAudioSources(
-      _playlistSources,
-      initialIndex: _currentIndex,
-    );
-    await _player.setLoopMode(_mapLoopMode(_repeatMode));
-    await _player.setShuffleModeEnabled(_shuffle);
-    if (_shuffle) {
-      await _player.shuffle();
-    }
-    mediaItem.add(mediaItems[_currentIndex]);
-    _broadcastState();
   }
 
   Future<void> playTrackAt(int index) async {

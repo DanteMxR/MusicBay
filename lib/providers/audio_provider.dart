@@ -75,6 +75,8 @@ class AudioProvider extends ChangeNotifier {
       await _audioService.play();
       await _cacheCurrentTrackIfNeeded();
       notifyListeners();
+    } catch (e) {
+      debugPrint('playPlaylist error: $e');
     } finally {
       _switchingPlaylist = false;
     }
