@@ -80,7 +80,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   track: track,
                   isPlaying: isPlaying,
                   onTap: () {
-                    audio.playPlaylist(_tracks, startIndex: index);
+                    audio.playPauseTrack(track, _tracks, startIndex: index);
                   },
                   trailing: IconButton(
                     icon: const Icon(Icons.bookmark_add_outlined),

@@ -41,6 +41,25 @@ class AudioProvider extends ChangeNotifier {
   RepeatMode get repeatMode => _audioService.repeatMode;
   bool get shuffle => _audioService.shuffle;
 
+  bool isPlayingTrack(Track track) {
+    final current = _audioService.currentTrack;
+    return current != null &&
+        current.id == track.id &&
+        current.ownerId == track.ownerId;
+  }
+
+  Future<void> playPauseTrack(Track track, List<Track> playlist, {int startIndex = 0}) async {
+    final isCurrentTrack = isPlayingTrack(track);
+    
+    if (isCurrentTrack) {
+      // Тот же трек — ставим на паузу или возобновляем
+      await playPause();
+    } else {
+      // Другой трек — запускаем новый
+      await playPlaylist(playlist, startIndex: startIndex);
+    }
+  }
+
   Stream<Duration> get positionStream => _audioService.positionStream;
   Stream<Duration?> get durationStream => _audioService.durationStream;
   Stream<PlayerState> get playerStateStream => _audioService.playerStateStream;

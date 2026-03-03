@@ -153,9 +153,8 @@ class _MyMusicTabState extends State<MyMusicTab> {
                     ],
                   )
                 : null,
-            onTap: () {
-              audio.playPlaylist(visibleTracks, startIndex: dataIndex);
-            },
+            onTap: () =>
+                audio.playPauseTrack(track, visibleTracks, startIndex: dataIndex),
             onLongPress: () => _showTrackMenu(context, track, vk),
           );
         },

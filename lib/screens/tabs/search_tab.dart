@@ -94,9 +94,8 @@ class _SearchTabState extends State<SearchTab> {
             track: track,
             isPlaying: isPlaying,
             trailing: _buildAddToLibraryButton(track),
-            onTap: () {
-              audio.playPlaylist(vk.searchResults, startIndex: index);
-            },
+            onTap: () =>
+                audio.playPauseTrack(track, vk.searchResults, startIndex: index),
             onLongPress: () => _showAddDialog(track),
           );
         },
@@ -135,7 +134,8 @@ class _SearchTabState extends State<SearchTab> {
               track: track,
               isPlaying: isPlaying,
               trailing: _buildAddToLibraryButton(track),
-              onTap: () => audio.playPlaylist(vk.newTracks, startIndex: index),
+              onTap: () =>
+                  audio.playPauseTrack(track, vk.newTracks, startIndex: index),
               onLongPress: () => _showAddDialog(track),
             );
           }),
@@ -158,7 +158,7 @@ class _SearchTabState extends State<SearchTab> {
               isPlaying: isPlaying,
               trailing: _buildAddToLibraryButton(track),
               onTap: () =>
-                  audio.playPlaylist(vk.recommendations, startIndex: index),
+                  audio.playPauseTrack(track, vk.recommendations, startIndex: index),
               onLongPress: () => _showAddDialog(track),
             );
           }),

@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 class Track {
   final int id;
   final int ownerId;
@@ -36,6 +38,36 @@ class Track {
   factory Track.fromJson(Map<String, dynamic> json) {
     final thumb = _extractThumb(json);
 
+    // Extract album info - VK API can return it in different formats
+    int? albumId;
+    int? albumOwnerId;
+    String? albumTitle;
+    
+    // Try standard album object
+    if (json['album'] != null) {
+      albumId = json['album']['id'];
+      albumOwnerId = json['album']['owner_id'];
+      albumTitle = json['album']['title'];
+    }
+    
+    // Also check for direct fields (some API endpoints return them this way)
+    albumId ??= json['album_id'];
+    albumOwnerId ??= json['album_owner_id'];
+    albumTitle ??= json['album_title'];
+
+    // Debug logging for album info
+    if (albumId != null) {
+      developer.log(
+        'Track "${json['title']}" has album: id=$albumId, owner=$albumOwnerId, title=$albumTitle',
+        name: 'Track',
+      );
+    } else {
+      developer.log(
+        'Track "${json['title']}" has NO album info',
+        name: 'Track',
+      );
+    }
+
     return Track(
       id: json['id'] ?? 0,
       ownerId: json['owner_id'] ?? 0,
@@ -44,9 +76,9 @@ class Track {
       duration: json['duration'] ?? 0,
       url: json['url'] ?? '',
       albumThumb: thumb,
-      albumId: json['album']?['id'],
-      albumOwnerId: json['album']?['owner_id'],
-      albumTitle: json['album']?['title'],
+      albumId: albumId,
+      albumOwnerId: albumOwnerId,
+      albumTitle: albumTitle,
       isExplicit: json['is_explicit'] == true,
     );
   }

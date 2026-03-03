@@ -102,7 +102,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
                         track: track,
                         isPlaying: isPlaying,
                         onTap: () {
-                          audio.playPlaylist(_cachedTracks, startIndex: index);
+                          audio.playPauseTrack(track, _cachedTracks, startIndex: index);
                         },
                         onLongPress: () => _showDeleteDialog(track),
                         trailing: const Icon(

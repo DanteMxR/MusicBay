@@ -37,15 +37,16 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
         ? (artistMap[_selectedArtist!] ?? const <Track>[])
         : const <Track>[];
 
-    final releaseCards = <Track>[];
-    final releaseSeen = <String>{};
-    for (final t in freshTracks) {
-      final key = '${t.artist}_${t.albumId ?? t.id}_${t.albumThumb ?? ''}';
-      if (releaseSeen.add(key)) {
-        releaseCards.add(t);
-      }
-      if (releaseCards.length >= 12) break;
-    }
+    // Альбомы скрыты, т.к. VK API не возвращает информацию об альбомах
+    // final releaseCards = <Track>[];
+    // final releaseSeen = <String>{};
+    // for (final t in freshTracks) {
+    //   final key = '${t.artist}_${t.albumId ?? t.id}_${t.albumThumb ?? ''}';
+    //   if (releaseSeen.add(key)) {
+    //     releaseCards.add(t);
+    //   }
+    //   if (releaseCards.length >= 12) break;
+    // }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Главная')),
@@ -134,115 +135,117 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                         audio.currentTrack?.ownerId == track.ownerId,
                     trailing: _buildAddToLibraryButton(context, track),
                     onTap: () =>
-                        audio.playPlaylist(artistTracks, startIndex: index),
+                        audio.playPauseTrack(track, artistTracks, startIndex: index),
                   );
                 }),
             ],
-            if (releaseCards.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
-                child: Text(
-                  'Новые альбомы и релизы',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              SizedBox(
-                height: 218,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: releaseCards.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (_, i) {
-                    final track = releaseCards[i];
-                    final title = track.title;
-                    final subtitle = track.artist;
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () {
-                        if (track.albumId != null && track.albumOwnerId != null) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => PlaylistDetailScreen(
-                                playlist: Playlist(
-                                  id: track.albumId!,
-                                  ownerId: track.albumOwnerId!,
-                                  title: track.albumTitle ?? track.title,
-                                  count: 0,
-                                  createTime: 0,
-                                  updateTime: 0,
-                                  photo: track.albumThumb,
-                                ),
-                              ),
-                            ),
-                          );
-                        } else {
-                          final list = freshTracks
-                              .where((t) => t.artist == track.artist)
-                              .toList();
-                          final start = list.indexWhere(
-                            (t) => t.id == track.id && t.ownerId == track.ownerId,
-                          );
-                          audio.playPlaylist(
-                            list.isNotEmpty ? list : freshTracks,
-                            startIndex: start >= 0 ? start : 0,
-                          );
-                        }
-                      },
-                      child: SizedBox(
-                        width: 150,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: SizedBox(
-                                width: 150,
-                                height: 150,
-                                child: ArtworkImage(
-                                  track: track,
-                                  width: 150,
-                                  height: 150,
-                                  placeholder: Container(
-                                    color: theme
-                                        .colorScheme
-                                        .surfaceContainerHighest,
-                                    child: const Icon(
-                                      Icons.album_outlined,
-                                      size: 34,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+            // Альбомы скрыты, т.к. VK API не возвращает информацию об альбомах в рекомендациях
+            // if (releaseCards.isNotEmpty) ...[
+            //   Padding(
+            //     padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+            //     child: Text(
+            //       'Новые альбомы и релизы',
+            //       style: theme.textTheme.titleMedium?.copyWith(
+            //         fontWeight: FontWeight.bold,
+            //       ),
+            //     ),
+            //   ),
+            //   SizedBox(
+            //     height: 218,
+            //     child: ListView.separated(
+            //       scrollDirection: Axis.horizontal,
+            //       padding: const EdgeInsets.symmetric(horizontal: 16),
+            //       itemCount: releaseCards.length,
+            //       separatorBuilder: (_, _) => const SizedBox(width: 12),
+            //       itemBuilder: (_, i) {
+            //         final track = releaseCards[i];
+            //         final title = track.title;
+            //         final subtitle = track.artist;
+            //         return InkWell(
+            //           borderRadius: BorderRadius.circular(14),
+            //           onTap: () {
+            //             if (track.albumId != null && track.albumOwnerId != null) {
+            //               Navigator.of(context).push(
+            //                 MaterialPageRoute(
+            //                   builder: (_) => PlaylistDetailScreen(
+            //                     playlist: Playlist(
+            //                       id: track.albumId!,
+            //                       ownerId: track.albumOwnerId!,
+            //                       title: track.albumTitle ?? track.title,
+            //                       count: 0,
+            //                       createTime: 0,
+            //                       updateTime: 0,
+            //                       photo: track.albumThumb,
+            //                     ),
+            //                   ),
+            //                 ),
+            //               );
+            //             } else {
+            //               final list = freshTracks
+            //                   .where((t) => t.artist == track.artist)
+            //                   .toList();
+            //               final start = list.indexWhere(
+            //                 (t) => t.id == track.id && t.ownerId == track.ownerId,
+            //               );
+            //               audio.playPauseTrack(
+            //                 track,
+            //                 list.isNotEmpty ? list : freshTracks,
+            //                 startIndex: start >= 0 ? start : 0,
+            //               );
+            //             }
+            //           },
+            //           child: SizedBox(
+            //             width: 150,
+            //             child: Column(
+            //               crossAxisAlignment: CrossAxisAlignment.start,
+            //               children: [
+            //                 ClipRRect(
+            //                   borderRadius: BorderRadius.circular(14),
+            //                   child: SizedBox(
+            //                     width: 150,
+            //                     height: 150,
+            //                     child: ArtworkImage(
+            //                       track: track,
+            //                       width: 150,
+            //                       height: 150,
+            //                       placeholder: Container(
+            //                         color: theme
+            //                             .colorScheme
+            //                             .surfaceContainerHighest,
+            //                         child: const Icon(
+            //                           Icons.album_outlined,
+            //                           size: 34,
+            //                         ),
+            //                       ),
+            //                     ),
+            //                   ),
+            //                 ),
+            //                 const SizedBox(height: 8),
+            //                 Text(
+            //                   title,
+            //                   maxLines: 1,
+            //                   overflow: TextOverflow.ellipsis,
+            //                   style: theme.textTheme.bodyMedium?.copyWith(
+            //                     fontWeight: FontWeight.w700,
+            //                   ),
+            //                 ),
+            //                 const SizedBox(height: 2),
+            //                 Text(
+            //                   subtitle,
+            //                   maxLines: 1,
+            //                   overflow: TextOverflow.ellipsis,
+            //                   style: theme.textTheme.bodySmall?.copyWith(
+            //                     color: theme.colorScheme.onSurfaceVariant,
+            //                   ),
+            //                 ),
+            //               ],
+            //             ),
+            //           ),
+            //         );
+            //       },
+            //     ),
+            //   ),
+            // ],
             if (dailyTracks.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
@@ -262,7 +265,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                       audio.currentTrack?.ownerId == track.ownerId,
                   trailing: _buildAddToLibraryButton(context, track),
                   onTap: () =>
-                      audio.playPlaylist(dailyTracks, startIndex: index),
+                      audio.playPauseTrack(track, dailyTracks, startIndex: index),
                 );
               }),
             ],
