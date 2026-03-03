@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:vodka2.github.io)",
+      "WebFetch(domain:vk-api.readthedocs.io)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(flutter logs:*)",
+      "Bash(flutter pub get:*)"
+    ]
+  }
+}

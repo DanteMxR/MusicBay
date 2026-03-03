@@ -1,0 +1,50 @@
+name: musicbay
+description: "VK Music Player"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # HTTP
+  dio: ^5.4.0
+
+  # Audio
+  just_audio: ^0.9.36
+  audio_service: ^0.18.15
+
+  # State management
+  provider: ^6.1.1
+
+  # Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_secure_storage: ^9.0.0
+  path_provider: ^2.1.2
+
+  # UI
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+
+  # Auth
+  webview_flutter: ^4.10.0
+
+  # Utils
+  permission_handler: ^11.3.0
+  connectivity_plus: ^6.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.8
+
+flutter:
+  uses-material-design: true
