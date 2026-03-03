@@ -1,27 +1,39 @@
 import 'package:flutter/foundation.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/track.dart';
 
 class AudioPlayerService {
   final AudioPlayer _player = AudioPlayer();
-  final ConcatenatingAudioSource _playlist =
-      ConcatenatingAudioSource(children: []);
+  MusicAudioHandler? _handler;
 
-  List<Track> _tracks = [];
-  int _currentIndex = -1;
-  RepeatMode _repeatMode = RepeatMode.off;
-  bool _shuffle = false;
+  MusicAudioHandler get _safeHandler {
+    final handler = _handler;
+    if (handler == null) {
+      throw StateError('AudioPlayerService is not initialized');
+    }
+    return handler;
+  }
+
+  Future<void> init() async {
+    _handler = await AudioService.init(
+      builder: () => MusicAudioHandler(_player),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.musicbay.musicbay.audio',
+        androidNotificationChannelName: 'MusicBay Playback',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      ),
+    );
+  }
 
   AudioPlayer get player => _player;
-  List<Track> get tracks => _tracks;
-  int get currentIndex => _currentIndex;
-  Track? get currentTrack =>
-      _currentIndex >= 0 && _currentIndex < _tracks.length
-          ? _tracks[_currentIndex]
-          : null;
+  List<Track> get tracks => _safeHandler.tracks;
+  int get currentIndex => _safeHandler.currentIndex;
+  Track? get currentTrack => _safeHandler.currentTrack;
 
-  RepeatMode get repeatMode => _repeatMode;
-  bool get shuffle => _shuffle;
+  RepeatMode get repeatMode => _safeHandler.repeatMode;
+  bool get shuffle => _safeHandler.shuffle;
 
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
@@ -32,56 +44,14 @@ class AudioPlayerService {
   Duration get position => _player.position;
   Duration get duration => _player.duration ?? Duration.zero;
 
-  AudioPlayerService() {
-    _player.currentIndexStream.listen((index) {
-      if (index != null && index >= 0 && index < _tracks.length) {
-        _currentIndex = index;
-      }
-    });
-
-    _player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) {
-        if (_repeatMode == RepeatMode.one) {
-          _player.seek(Duration.zero);
-          _player.play();
-        }
-      }
-    });
-
-    _player.playbackEventStream.listen(
-      (_) {},
-      onError: (Object e, StackTrace st) {
-        debugPrint('Playback error: $e');
-      },
-    );
-  }
+  AudioPlayerService();
 
   Future<void> setPlaylist(List<Track> tracks, {int startIndex = 0}) async {
-    final selectedTrack = (startIndex >= 0 && startIndex < tracks.length)
-        ? tracks[startIndex]
-        : null;
-
-    _tracks = tracks.where((t) => t.url.isNotEmpty).toList();
-
-    _currentIndex = 0;
-    if (selectedTrack != null && selectedTrack.url.isNotEmpty) {
-      final idx = _tracks.indexWhere((t) => t.id == selectedTrack.id);
-      if (idx >= 0) _currentIndex = idx;
-    }
-
-    await _playlist.clear();
-    final sources = _tracks
-        .map((t) => AudioSource.uri(
-              _isLocalPath(t.url) ? Uri.file(t.url) : Uri.parse(t.url),
-            ))
-        .toList();
-
-    await _playlist.addAll(sources);
-    await _player.setAudioSource(_playlist, initialIndex: _currentIndex);
+    await _safeHandler.setPlaylist(tracks, startIndex: startIndex);
   }
 
-  Future<void> play() async => _player.play();
-  Future<void> pause() async => _player.pause();
+  Future<void> play() async => _safeHandler.play();
+  Future<void> pause() async => _safeHandler.pause();
 
   Future<void> playPause() async {
     if (_player.playing) {
@@ -91,57 +61,243 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> next() async {
-    if (_currentIndex < _tracks.length - 1) {
-      await _player.seekToNext();
-    }
+  Future<void> next() async => _safeHandler.skipToNext();
+
+  Future<void> previous() async => _safeHandler.skipToPrevious();
+
+  Future<void> seekTo(Duration position) async => _safeHandler.seek(position);
+
+  Future<void> playTrackAt(int index) async {
+    await _safeHandler.playTrackAt(index);
   }
 
-  Future<void> previous() async {
-    if (_player.position.inSeconds > 3) {
-      await _player.seek(Duration.zero);
-    } else {
-      await _player.seekToPrevious();
-    }
+  Future<void> toggleRepeat() async => _safeHandler.toggleRepeat();
+
+  Future<void> toggleShuffle() async => _safeHandler.toggleShuffle();
+
+  Future<void> dispose() async => _safeHandler.stop();
+}
+
+enum RepeatMode { off, all, one }
+
+class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+  final AudioPlayer _player;
+  final ConcatenatingAudioSource _playlist =
+      ConcatenatingAudioSource(children: []);
+
+  List<Track> _tracks = [];
+  int _currentIndex = -1;
+  RepeatMode _repeatMode = RepeatMode.off;
+  bool _shuffle = false;
+
+  MusicAudioHandler(this._player) {
+    _player.currentIndexStream.listen((index) {
+      if (index != null && index >= 0 && index < _tracks.length) {
+        _currentIndex = index;
+        mediaItem.add(_trackToMediaItem(_tracks[index]));
+      }
+      _broadcastState();
+    });
+
+    _player.processingStateStream.listen((state) async {
+      if (state == ProcessingState.completed && _repeatMode == RepeatMode.one) {
+        await _player.seek(Duration.zero);
+        await _player.play();
+      }
+      _broadcastState();
+    });
+
+    _player.playbackEventStream.listen(
+      (_) => _broadcastState(),
+      onError: (Object e, StackTrace st) {
+        debugPrint('Playback error: $e');
+      },
+    );
   }
 
-  Future<void> seekTo(Duration position) async => _player.seek(position);
+  List<Track> get tracks => _tracks;
+  int get currentIndex => _currentIndex;
+  Track? get currentTrack =>
+      _currentIndex >= 0 && _currentIndex < _tracks.length
+          ? _tracks[_currentIndex]
+          : null;
+
+  RepeatMode get repeatMode => _repeatMode;
+  bool get shuffle => _shuffle;
+
+  Future<void> setPlaylist(List<Track> tracks, {int startIndex = 0}) async {
+    final selectedTrack = (startIndex >= 0 && startIndex < tracks.length)
+        ? tracks[startIndex]
+        : null;
+
+    _tracks = tracks.where((t) => t.url.isNotEmpty).toList();
+    if (_tracks.isEmpty) return;
+
+    _currentIndex = 0;
+    if (selectedTrack != null && selectedTrack.url.isNotEmpty) {
+      final idx = _tracks.indexWhere((t) => t.id == selectedTrack.id);
+      if (idx >= 0) _currentIndex = idx;
+    }
+
+    await _playlist.clear();
+
+    final mediaItems = _tracks.map(_trackToMediaItem).toList();
+    queue.add(mediaItems);
+
+    final sources = _tracks.asMap().entries.map((entry) {
+      final index = entry.key;
+      final track = entry.value;
+      return AudioSource.uri(
+        _isLocalPath(track.url) ? Uri.file(track.url) : Uri.parse(track.url),
+        tag: mediaItems[index],
+      );
+    }).toList();
+
+    await _playlist.addAll(sources);
+    await _player.setAudioSource(_playlist, initialIndex: _currentIndex);
+    mediaItem.add(mediaItems[_currentIndex]);
+    _broadcastState();
+  }
 
   Future<void> playTrackAt(int index) async {
     if (index >= 0 && index < _tracks.length) {
       _currentIndex = index;
       await _player.seek(Duration.zero, index: index);
       await _player.play();
+      _broadcastState();
     }
   }
 
-  void toggleRepeat() {
+  Future<void> toggleRepeat() async {
     switch (_repeatMode) {
       case RepeatMode.off:
         _repeatMode = RepeatMode.all;
-        _player.setLoopMode(LoopMode.all);
+        await _player.setLoopMode(LoopMode.all);
         break;
       case RepeatMode.all:
         _repeatMode = RepeatMode.one;
-        _player.setLoopMode(LoopMode.one);
+        await _player.setLoopMode(LoopMode.one);
         break;
       case RepeatMode.one:
         _repeatMode = RepeatMode.off;
-        _player.setLoopMode(LoopMode.off);
+        await _player.setLoopMode(LoopMode.off);
         break;
+    }
+    _broadcastState();
+  }
+
+  Future<void> toggleShuffle() async {
+    _shuffle = !_shuffle;
+    await _player.setShuffleModeEnabled(_shuffle);
+    _broadcastState();
+  }
+
+  @override
+  Future<void> play() async {
+    await _player.play();
+    _broadcastState();
+  }
+
+  @override
+  Future<void> pause() async {
+    await _player.pause();
+    _broadcastState();
+  }
+
+  @override
+  Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> skipToNext() async {
+    if (_currentIndex < _tracks.length - 1) {
+      await _player.seekToNext();
+      _broadcastState();
     }
   }
 
-  void toggleShuffle() {
-    _shuffle = !_shuffle;
-    _player.setShuffleModeEnabled(_shuffle);
+  @override
+  Future<void> skipToPrevious() async {
+    if (_player.position.inSeconds > 3) {
+      await _player.seek(Duration.zero);
+    } else {
+      await _player.seekToPrevious();
+    }
+    _broadcastState();
+  }
+
+  @override
+  Future<void> stop() async {
+    await _player.stop();
+    _broadcastState();
+    return super.stop();
+  }
+
+  void _broadcastState() {
+    playbackState.add(
+      PlaybackState(
+        controls: [
+          MediaControl.skipToPrevious,
+          if (_player.playing) MediaControl.pause else MediaControl.play,
+          MediaControl.skipToNext,
+          MediaControl.stop,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekBackward,
+          MediaAction.seekForward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        processingState: _mapProcessingState(_player.processingState),
+        playing: _player.playing,
+        updatePosition: _player.position,
+        speed: _player.speed,
+        queueIndex: _currentIndex >= 0 ? _currentIndex : null,
+        repeatMode: _mapRepeatMode(_repeatMode),
+        shuffleMode: _shuffle
+            ? AudioServiceShuffleMode.all
+            : AudioServiceShuffleMode.none,
+      ),
+    );
+  }
+
+  AudioProcessingState _mapProcessingState(ProcessingState state) {
+    switch (state) {
+      case ProcessingState.idle:
+        return AudioProcessingState.idle;
+      case ProcessingState.loading:
+        return AudioProcessingState.loading;
+      case ProcessingState.buffering:
+        return AudioProcessingState.buffering;
+      case ProcessingState.ready:
+        return AudioProcessingState.ready;
+      case ProcessingState.completed:
+        return AudioProcessingState.completed;
+    }
+  }
+
+  AudioServiceRepeatMode _mapRepeatMode(RepeatMode mode) {
+    switch (mode) {
+      case RepeatMode.off:
+        return AudioServiceRepeatMode.none;
+      case RepeatMode.all:
+        return AudioServiceRepeatMode.all;
+      case RepeatMode.one:
+        return AudioServiceRepeatMode.one;
+    }
+  }
+
+  MediaItem _trackToMediaItem(Track track) {
+    return MediaItem(
+      id: track.accessKey,
+      title: track.title,
+      artist: track.artist,
+      duration: Duration(seconds: track.duration),
+      artUri: track.albumThumb != null ? Uri.tryParse(track.albumThumb!) : null,
+      extras: {'url': track.url},
+    );
   }
 
   bool _isLocalPath(String path) {
     return path.startsWith('/') || path.startsWith('C:') || path.startsWith('D:');
   }
-
-  Future<void> dispose() async => _player.dispose();
 }
-
-enum RepeatMode { off, all, one }

@@ -75,13 +75,13 @@ class AudioProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleRepeat() {
-    _audioService.toggleRepeat();
+  Future<void> toggleRepeat() async {
+    await _audioService.toggleRepeat();
     notifyListeners();
   }
 
-  void toggleShuffle() {
-    _audioService.toggleShuffle();
+  Future<void> toggleShuffle() async {
+    await _audioService.toggleShuffle();
     notifyListeners();
   }
 }

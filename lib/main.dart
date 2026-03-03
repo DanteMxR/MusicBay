@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'services/vk_api_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/cache_service.dart';
@@ -21,6 +24,7 @@ Future<void> main() async {
   await cacheService.init();
 
   final audioService = AudioPlayerService();
+  await audioService.init();
 
   runApp(
     MultiProvider(
@@ -38,8 +42,28 @@ Future<void> main() async {
   );
 }
 
-class MusicBayApp extends StatelessWidget {
+class MusicBayApp extends StatefulWidget {
   const MusicBayApp({super.key});
+
+  @override
+  State<MusicBayApp> createState() => _MusicBayAppState();
+}
+
+class _MusicBayAppState extends State<MusicBayApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestPermissions());
+  }
+
+  Future<void> _requestPermissions() async {
+    if (!Platform.isAndroid || !mounted) return;
+
+    final notificationStatus = await Permission.notification.status;
+    if (!notificationStatus.isGranted) {
+      await Permission.notification.request();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
