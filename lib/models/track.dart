@@ -7,6 +7,8 @@ class Track {
   final String url;
   final String? albumThumb;
   final int? albumId;
+  final int? albumOwnerId;
+  final String? albumTitle;
   final bool isExplicit;
 
   Track({
@@ -18,6 +20,8 @@ class Track {
     required this.url,
     this.albumThumb,
     this.albumId,
+    this.albumOwnerId,
+    this.albumTitle,
     this.isExplicit = false,
   });
 
@@ -41,6 +45,8 @@ class Track {
       url: json['url'] ?? '',
       albumThumb: thumb,
       albumId: json['album']?['id'],
+      albumOwnerId: json['album']?['owner_id'],
+      albumTitle: json['album']?['title'],
       isExplicit: json['is_explicit'] == true,
     );
   }
@@ -179,6 +185,8 @@ class Track {
     'url': url,
     'album_thumb': albumThumb,
     'album_id': albumId,
+    'album_owner_id': albumOwnerId,
+    'album_title': albumTitle,
     'is_explicit': isExplicit,
   };
 
@@ -191,6 +199,8 @@ class Track {
     url: json['url'] ?? '',
     albumThumb: json['album_thumb'],
     albumId: json['album_id'],
+    albumOwnerId: json['album_owner_id'],
+    albumTitle: json['album_title'],
     isExplicit: json['is_explicit'] ?? false,
   );
 }

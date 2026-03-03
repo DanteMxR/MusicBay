@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -94,8 +93,6 @@ class MusicAudioHandler extends BaseAudioHandler
   int _currentIndex = -1;
   RepeatMode _repeatMode = RepeatMode.off;
   bool _shuffle = false;
-  bool _rebindAfterTrackChangeInProgress = false;
-  int _lastReboundIndex = -1;
 
   MusicAudioHandler(this._player) {
     unawaited(_player.setSpeed(1.0));
@@ -104,11 +101,6 @@ class MusicAudioHandler extends BaseAudioHandler
       if (index != null && index >= 0 && index < _tracks.length) {
         _currentIndex = index;
         mediaItem.add(_trackToMediaItem(_tracks[index]));
-        if (Platform.isAndroid &&
-            !_rebindAfterTrackChangeInProgress &&
-            _lastReboundIndex != index) {
-          unawaited(_rebindDecoderAfterTrackChange(index));
-        }
       }
       _broadcastState();
     });
@@ -159,37 +151,35 @@ class MusicAudioHandler extends BaseAudioHandler
       );
     }).toList();
 
-    // Prevent _rebindDecoderAfterTrackChange from firing during playlist setup
-    _rebindAfterTrackChangeInProgress = true;
-    try {
-      if (_player.playing) {
-        await _player.stop();
-      }
-      if (_player.speed != 1.0) {
-        await _player.setSpeed(1.0);
-      }
-      await _player.setAudioSources(
-        _playlistSources,
-        initialIndex: _currentIndex,
-      );
-      _lastReboundIndex = _currentIndex;
-      await _player.setLoopMode(_mapLoopMode(_repeatMode));
-      await _player.setShuffleModeEnabled(_shuffle);
-      if (_shuffle) {
-        await _player.shuffle();
-      }
-      mediaItem.add(mediaItems[_currentIndex]);
-      _broadcastState();
-    } finally {
-      _rebindAfterTrackChangeInProgress = false;
+    if (_player.playing) {
+      await _player.stop();
     }
+    if (_player.speed != 1.0) {
+      await _player.setSpeed(1.0);
+    }
+    await _player.setAudioSources(
+      _playlistSources,
+      initialIndex: _currentIndex,
+    );
+    await _player.setLoopMode(_mapLoopMode(_repeatMode));
+    await _player.setShuffleModeEnabled(_shuffle);
+    if (_shuffle) {
+      await _player.shuffle();
+    }
+    mediaItem.add(mediaItems[_currentIndex]);
+    _broadcastState();
   }
 
   Future<void> playTrackAt(int index) async {
     if (index >= 0 && index < _tracks.length) {
       _currentIndex = index;
-      await _player.seek(Duration.zero, index: index);
+      await _player.stop();
+      await _player.setAudioSources(
+        _playlistSources,
+        initialIndex: index,
+      );
       await _player.play();
+      mediaItem.add(_trackToMediaItem(_tracks[index]));
       _broadcastState();
     }
   }
@@ -245,33 +235,6 @@ class MusicAudioHandler extends BaseAudioHandler
       debugPrint('Decoder recovery failed: $e');
     }
     _broadcastState();
-  }
-
-  Future<void> _rebindDecoderAfterTrackChange(int index) async {
-    if (_tracks.isEmpty) return;
-    _rebindAfterTrackChangeInProgress = true;
-    _lastReboundIndex = index;
-    try {
-      final wasPlaying = _player.playing;
-      await _player.setAudioSources(
-        _playlistSources,
-        initialIndex: index,
-        initialPosition: Duration.zero,
-      );
-      await _player.setSpeed(1.0);
-      await _player.setLoopMode(_mapLoopMode(_repeatMode));
-      await _player.setShuffleModeEnabled(_shuffle);
-      if (_shuffle) {
-        await _player.shuffle();
-      }
-      if (wasPlaying) {
-        await _player.play();
-      }
-    } catch (e) {
-      debugPrint('Track-change decoder rebind failed: $e');
-    } finally {
-      _rebindAfterTrackChangeInProgress = false;
-    }
   }
 
   @override

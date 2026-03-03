@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/vk_provider.dart';
+import '../../screens/playlist_detail_screen.dart';
 import '../../widgets/artwork_image.dart';
 import '../../widgets/track_tile.dart';
 
@@ -160,16 +162,34 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                     return InkWell(
                       borderRadius: BorderRadius.circular(14),
                       onTap: () {
-                        final list = freshTracks
-                            .where((t) => t.artist == track.artist)
-                            .toList();
-                        final start = list.indexWhere(
-                          (t) => t.id == track.id && t.ownerId == track.ownerId,
-                        );
-                        audio.playPlaylist(
-                          list.isNotEmpty ? list : freshTracks,
-                          startIndex: start >= 0 ? start : 0,
-                        );
+                        if (track.albumId != null && track.albumOwnerId != null) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => PlaylistDetailScreen(
+                                playlist: Playlist(
+                                  id: track.albumId!,
+                                  ownerId: track.albumOwnerId!,
+                                  title: track.albumTitle ?? track.title,
+                                  count: 0,
+                                  createTime: 0,
+                                  updateTime: 0,
+                                  photo: track.albumThumb,
+                                ),
+                              ),
+                            ),
+                          );
+                        } else {
+                          final list = freshTracks
+                              .where((t) => t.artist == track.artist)
+                              .toList();
+                          final start = list.indexWhere(
+                            (t) => t.id == track.id && t.ownerId == track.ownerId,
+                          );
+                          audio.playPlaylist(
+                            list.isNotEmpty ? list : freshTracks,
+                            startIndex: start >= 0 ? start : 0,
+                          );
+                        }
                       },
                       child: SizedBox(
                         width: 150,

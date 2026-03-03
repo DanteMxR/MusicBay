@@ -46,6 +46,23 @@ class AudioProvider extends ChangeNotifier {
   Stream<PlayerState> get playerStateStream => _audioService.playerStateStream;
 
   Future<void> playPlaylist(List<Track> tracks, {int startIndex = 0}) async {
+    // If the same playlist is already loaded, just switch track
+    if (_isSamePlaylist(tracks) && !_switchingPlaylist) {
+      final target = (startIndex >= 0 && startIndex < tracks.length)
+          ? tracks[startIndex]
+          : null;
+      var resolvedIndex = startIndex;
+      if (target != null) {
+        final idx = _audioService.tracks.indexWhere(
+          (t) => t.id == target.id && t.ownerId == target.ownerId,
+        );
+        if (idx >= 0) resolvedIndex = idx;
+      }
+      await _audioService.playTrackAt(resolvedIndex);
+      notifyListeners();
+      return;
+    }
+
     if (_switchingPlaylist) return;
     _switchingPlaylist = true;
     // Replace URLs with cached paths where available
@@ -65,6 +82,8 @@ class AudioProvider extends ChangeNotifier {
             url: cachedPath,
             albumThumb: track.albumThumb,
             albumId: track.albumId,
+            albumOwnerId: track.albumOwnerId,
+            albumTitle: track.albumTitle,
             isExplicit: track.isExplicit,
           );
         }
@@ -134,6 +153,20 @@ class AudioProvider extends ChangeNotifier {
     } finally {
       _autoCachingTrack = false;
     }
+  }
+
+  bool _isSamePlaylist(List<Track> tracks) {
+    final current = _audioService.tracks;
+    if (current.isEmpty) return false;
+    final filtered = tracks.where((t) => t.url.isNotEmpty).toList();
+    if (current.length != filtered.length) return false;
+    for (var i = 0; i < current.length; i++) {
+      if (current[i].id != filtered[i].id ||
+          current[i].ownerId != filtered[i].ownerId) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _resetPlaybackWatchdog() {
