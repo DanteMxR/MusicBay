@@ -14,12 +14,19 @@ class VkProvider extends ChangeNotifier {
 
   // My Audio
   List<Track> _myTracks = [];
+  final Set<String> _savedTrackKeys = {};
   bool _myTracksLoading = false;
   String? _myTracksError;
 
   List<Track> get myTracks => _myTracks;
   bool get myTracksLoading => _myTracksLoading;
   String? get myTracksError => _myTracksError;
+  bool isTrackSaved(int trackId, {int? ownerId}) {
+    if (ownerId == null) {
+      return _savedTrackKeys.any((k) => k.endsWith('_$trackId'));
+    }
+    return _savedTrackKeys.contains(_trackKey(trackId, ownerId));
+  }
 
   // Search
   List<Track> _searchResults = [];
@@ -36,6 +43,15 @@ class VkProvider extends ChangeNotifier {
 
   List<Track> get recommendations => _recommendations;
   bool get recommendationsLoading => _recommendationsLoading;
+
+  // Fresh recommendations
+  List<Track> _newTracks = [];
+  List<Playlist> _newAlbums = [];
+  bool _newReleasesLoading = false;
+
+  List<Track> get newTracks => _newTracks;
+  List<Playlist> get newAlbums => _newAlbums;
+  bool get newReleasesLoading => _newReleasesLoading;
 
   // Playlists
   List<Playlist> _playlists = [];
@@ -59,7 +75,9 @@ class VkProvider extends ChangeNotifier {
   String? get captchaSid => _captchaSid;
   String? get captchaImg => _captchaImg;
 
-  Future<bool> login(String username, String password, {
+  Future<bool> login(
+    String username,
+    String password, {
     String? captchaSid,
     String? captchaKey,
   }) async {
@@ -136,8 +154,11 @@ class VkProvider extends ChangeNotifier {
   Future<void> logout() async {
     await _api.logout();
     _myTracks = [];
+    _savedTrackKeys.clear();
     _searchResults = [];
     _recommendations = [];
+    _newTracks = [];
+    _newAlbums = [];
     _playlists = [];
     notifyListeners();
   }
@@ -155,8 +176,12 @@ class VkProvider extends ChangeNotifier {
       );
       if (refresh) {
         _myTracks = tracks;
+        _savedTrackKeys
+          ..clear()
+          ..addAll(tracks.map((t) => _trackKey(t.id, t.ownerId)));
       } else {
         _myTracks.addAll(tracks);
+        _savedTrackKeys.addAll(tracks.map((t) => _trackKey(t.id, t.ownerId)));
       }
     } catch (e) {
       _myTracksError = e.toString();
@@ -244,11 +269,92 @@ class VkProvider extends ChangeNotifier {
 
   Future<void> addTrack(Track track) async {
     await _api.addTrack(track.id, track.ownerId);
+    if (_myTracks.indexWhere(
+          (t) => t.id == track.id && t.ownerId == track.ownerId,
+        ) ==
+        -1) {
+      _myTracks.insert(0, track);
+    }
+    _savedTrackKeys.add(_trackKey(track.id, track.ownerId));
+    notifyListeners();
+  }
+
+  Future<void> addTrackToPlaylist(Track track, Playlist playlist) async {
+    await _api.addTrackToPlaylist(
+      playlistOwnerId: playlist.ownerId,
+      playlistId: playlist.id,
+      audioId: track.id,
+      audioOwnerId: track.ownerId,
+    );
   }
 
   Future<void> deleteTrack(Track track) async {
     await _api.deleteTrack(track.id, track.ownerId);
-    _myTracks.removeWhere((t) => t.id == track.id);
+    _myTracks.removeWhere(
+      (t) => t.id == track.id && t.ownerId == track.ownerId,
+    );
+    _savedTrackKeys.remove(_trackKey(track.id, track.ownerId));
     notifyListeners();
   }
+
+  Future<bool> toggleSavedTrack(Track track) async {
+    final saved = isTrackSaved(track.id, ownerId: track.ownerId);
+    if (saved) {
+      await deleteTrack(track);
+      return false;
+    } else {
+      await addTrack(track);
+      return true;
+    }
+  }
+
+  Future<void> loadNewReleases({bool refresh = false}) async {
+    if (_newReleasesLoading) return;
+    _newReleasesLoading = true;
+    notifyListeners();
+
+    try {
+      final tracks = await _api.getNewTracks(
+        offset: refresh ? 0 : _newTracks.length,
+        count: 40,
+      );
+
+      if (refresh) {
+        _newTracks = tracks;
+        _newAlbums = const [];
+      } else {
+        _newTracks.addAll(tracks);
+      }
+    } catch (_) {}
+
+    _newReleasesLoading = false;
+    notifyListeners();
+  }
+
+  Future<int> saveTracksToMyLibrary(
+    Iterable<Track> tracks, {
+    int? maxCount,
+  }) async {
+    var added = 0;
+    var processed = 0;
+    for (final track in tracks) {
+      if (maxCount != null && processed >= maxCount) break;
+      processed++;
+      if (_savedTrackKeys.contains(_trackKey(track.id, track.ownerId))) {
+        continue;
+      }
+      try {
+        await _api.addTrack(track.id, track.ownerId);
+        _savedTrackKeys.add(_trackKey(track.id, track.ownerId));
+        if (_myTracks.indexWhere((t) => t.id == track.id) == -1) {
+          _myTracks.insert(0, track);
+        }
+        added++;
+      } catch (_) {}
+    }
+    notifyListeners();
+    return added;
+  }
+
+  String _trackKey(int trackId, int ownerId) => '${ownerId}_$trackId';
 }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/track.dart';
+import 'artwork_image.dart';
 
 class TrackTile extends StatelessWidget {
   final Track track;
@@ -23,28 +23,25 @@ class TrackTile extends StatelessWidget {
     final theme = Theme.of(context);
 
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      tileColor: isPlaying
+          ? theme.colorScheme.primary.withValues(alpha: 0.12)
+          : Colors.transparent,
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: SizedBox(
           width: 48,
           height: 48,
-          child: track.albumThumb != null
-              ? CachedNetworkImage(
-                  imageUrl: track.albumThumb!,
-                  fit: BoxFit.cover,
-                  placeholder: (_, _) => Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.music_note, size: 24),
-                  ),
-                  errorWidget: (_, _, _) => Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.music_note, size: 24),
-                  ),
-                )
-              : Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  child: const Icon(Icons.music_note, size: 24),
-                ),
+          child: ArtworkImage(
+            track: track,
+            width: 48,
+            height: 48,
+            placeholder: Container(
+              color: theme.colorScheme.surfaceContainerHighest,
+              child: const Icon(Icons.music_note, size: 24),
+            ),
+          ),
         ),
       ),
       title: Text(
@@ -52,7 +49,7 @@ class TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: isPlaying ? theme.colorScheme.primary : null,
+          color: isPlaying ? theme.colorScheme.primary : Colors.white,
           fontWeight: isPlaying ? FontWeight.w600 : null,
         ),
       ),
@@ -66,7 +63,8 @@ class TrackTile extends StatelessWidget {
               : null,
         ),
       ),
-      trailing: trailing ??
+      trailing:
+          trailing ??
           Text(
             track.durationFormatted,
             style: theme.textTheme.bodySmall?.copyWith(

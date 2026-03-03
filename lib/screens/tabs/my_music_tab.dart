@@ -2,10 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/vk_provider.dart';
 import '../../providers/audio_provider.dart';
+import '../../services/cache_service.dart';
 import '../../widgets/track_tile.dart';
 
-class MyMusicTab extends StatelessWidget {
+enum _MyMusicFilter { all, downloaded }
+
+class MyMusicTab extends StatefulWidget {
   const MyMusicTab({super.key});
+
+  @override
+  State<MyMusicTab> createState() => _MyMusicTabState();
+}
+
+class _MyMusicTabState extends State<MyMusicTab> {
+  _MyMusicFilter _filter = _MyMusicFilter.all;
 
   @override
   Widget build(BuildContext context) {
@@ -54,32 +64,97 @@ class MyMusicTab extends StatelessWidget {
       return const Center(child: Text('Нет треков'));
     }
 
+    final cache = context.read<CacheService>();
+    final theme = Theme.of(context);
+
+    final allTracks = vk.myTracks;
+    final cachedKeys = <String>{};
+    for (final track in allTracks) {
+      if (cache.isTrackCached(track.id, ownerId: track.ownerId)) {
+        cachedKeys.add('${track.ownerId}_${track.id}');
+      }
+    }
+
+    final visibleTracks = _filter == _MyMusicFilter.all
+        ? allTracks
+        : allTracks
+              .where((t) => cachedKeys.contains('${t.ownerId}_${t.id}'))
+              .toList(growable: false);
+
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
-        if (notification.metrics.pixels >
-            notification.metrics.maxScrollExtent - 200) {
+        if (_filter == _MyMusicFilter.all &&
+            notification.metrics.pixels >
+                notification.metrics.maxScrollExtent - 200) {
           vk.loadMyTracks();
         }
         return false;
       },
       child: ListView.builder(
-        itemCount: vk.myTracks.length + (vk.myTracksLoading ? 1 : 0),
+        itemCount: visibleTracks.length + (vk.myTracksLoading ? 1 : 0),
         itemBuilder: (context, index) {
-          if (index >= vk.myTracks.length) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Все'),
+                    selected: _filter == _MyMusicFilter.all,
+                    onSelected: (_) =>
+                        setState(() => _filter = _MyMusicFilter.all),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Скачанные'),
+                    selected: _filter == _MyMusicFilter.downloaded,
+                    onSelected: (_) =>
+                        setState(() => _filter = _MyMusicFilter.downloaded),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final dataIndex = index - 1;
+
+          if (dataIndex >= visibleTracks.length) {
             return const Padding(
               padding: EdgeInsets.all(16),
               child: Center(child: CircularProgressIndicator()),
             );
           }
 
-          final track = vk.myTracks[index];
-          final isPlaying = audio.currentTrack?.id == track.id;
+          final track = visibleTracks[dataIndex];
+          final isPlaying =
+              audio.currentTrack?.id == track.id &&
+              audio.currentTrack?.ownerId == track.ownerId;
+          final isCached = cachedKeys.contains('${track.ownerId}_${track.id}');
 
           return TrackTile(
             track: track,
             isPlaying: isPlaying,
+            trailing: isCached
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        track.durationFormatted,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.download_done_rounded,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ],
+                  )
+                : null,
             onTap: () {
-              audio.playPlaylist(vk.myTracks, startIndex: index);
+              audio.playPlaylist(visibleTracks, startIndex: dataIndex);
             },
             onLongPress: () => _showTrackMenu(context, track, vk),
           );

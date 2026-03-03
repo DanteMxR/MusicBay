@@ -13,7 +13,9 @@ class LoginScreen extends StatelessWidget {
       MaterialPageRoute(builder: (_) => const VkAuthWebView()),
     );
 
-    if (result != null && result['access_token'] != null && result['user_id'] != null) {
+    if (result != null &&
+        result['access_token'] != null &&
+        result['user_id'] != null) {
       await vk.loginWithToken(
         result['access_token'] as String,
         result['user_id'] as int,
@@ -26,44 +28,72 @@ class LoginScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.music_note_rounded,
-                  size: 80,
-                  color: theme.colorScheme.primary,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              theme.colorScheme.primary.withValues(alpha: 0.22),
+              theme.scaffoldBackgroundColor,
+              theme.scaffoldBackgroundColor,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 28,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'MusicBay',
-                  style: theme.textTheme.headlineLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.35,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'VK Music Player',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.music_note_rounded,
+                      size: 84,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'MusicBay',
+                      style: theme.textTheme.headlineLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'VK Music Player',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: FilledButton.icon(
+                        onPressed: () => _openVkAuth(context),
+                        icon: const Icon(Icons.login),
+                        label: const Text('Войти через VK'),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 48),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: FilledButton.icon(
-                    onPressed: () => _openVkAuth(context),
-                    icon: const Icon(Icons.login),
-                    label: const Text('Войти через VK'),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),

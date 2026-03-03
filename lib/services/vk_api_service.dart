@@ -16,9 +16,7 @@ class VkApiService {
   static const String _userAgent =
       'KateMobileAndroid/91.1 lite-523 (Android 12; SDK 31; arm64-v8a; en)';
 
-  final Dio _dio = Dio(BaseOptions(
-    headers: {'User-Agent': _userAgent},
-  ));
+  final Dio _dio = Dio(BaseOptions(headers: {'User-Agent': _userAgent}));
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   String? _token;
@@ -102,7 +100,10 @@ class VkApiService {
   }
 
   Future<Map<String, dynamic>> login2FA(
-      String username, String password, String code) async {
+    String username,
+    String password,
+    String code,
+  ) async {
     try {
       final response = await _dio.post(
         _authUrl,
@@ -155,17 +156,12 @@ class VkApiService {
     await _storage.delete(key: 'vk_user_id');
   }
 
-  Future<dynamic> _apiCall(
-      String method, Map<String, dynamic> params) async {
+  Future<dynamic> _apiCall(String method, Map<String, dynamic> params) async {
     if (_token == null) throw Exception('Not authorized');
 
     final response = await _dio.get(
       '$_apiUrl/$method',
-      queryParameters: {
-        ...params,
-        'access_token': _token,
-        'v': _apiVersion,
-      },
+      queryParameters: {...params, 'access_token': _token, 'v': _apiVersion},
     );
 
     if (response.data['error'] != null) {
@@ -188,8 +184,11 @@ class VkApiService {
     return items.map((e) => Track.fromJson(e)).toList();
   }
 
-  Future<List<Track>> searchAudio(String query,
-      {int offset = 0, int count = 50}) async {
+  Future<List<Track>> searchAudio(
+    String query, {
+    int offset = 0,
+    int count = 50,
+  }) async {
     final data = await _apiCall('audio.search', {
       'q': query,
       'auto_complete': 1,
@@ -202,7 +201,10 @@ class VkApiService {
     return items.map((e) => Track.fromJson(e)).toList();
   }
 
-  Future<List<Track>> getRecommendations({int offset = 0, int count = 50}) async {
+  Future<List<Track>> getRecommendations({
+    int offset = 0,
+    int count = 50,
+  }) async {
     final data = await _apiCall('audio.getRecommendations', {
       'offset': offset,
       'count': count,
@@ -223,8 +225,12 @@ class VkApiService {
     return items.map((e) => Playlist.fromJson(e)).toList();
   }
 
-  Future<List<Track>> getPlaylistTracks(int ownerId, int playlistId,
-      {int offset = 0, int count = 100}) async {
+  Future<List<Track>> getPlaylistTracks(
+    int ownerId,
+    int playlistId, {
+    int offset = 0,
+    int count = 100,
+  }) async {
     final data = await _apiCall('audio.get', {
       'owner_id': ownerId,
       'album_id': playlistId,
@@ -237,17 +243,24 @@ class VkApiService {
   }
 
   Future<void> addTrack(int audioId, int ownerId) async {
-    await _apiCall('audio.add', {
-      'audio_id': audioId,
-      'owner_id': ownerId,
+    await _apiCall('audio.add', {'audio_id': audioId, 'owner_id': ownerId});
+  }
+
+  Future<void> addTrackToPlaylist({
+    required int playlistOwnerId,
+    required int playlistId,
+    required int audioId,
+    required int audioOwnerId,
+  }) async {
+    await _apiCall('audio.addToPlaylist', {
+      'owner_id': playlistOwnerId,
+      'playlist_id': playlistId,
+      'audio_ids': '${audioOwnerId}_$audioId',
     });
   }
 
   Future<void> deleteTrack(int audioId, int ownerId) async {
-    await _apiCall('audio.delete', {
-      'audio_id': audioId,
-      'owner_id': ownerId,
-    });
+    await _apiCall('audio.delete', {'audio_id': audioId, 'owner_id': ownerId});
   }
 
   Future<List<Track>> getPopular({int offset = 0, int count = 50}) async {
@@ -259,5 +272,26 @@ class VkApiService {
     // audio.getPopular may return a plain list or {count, items}
     final List items = data is List ? data : data['items'] as List;
     return items.map((e) => Track.fromJson(e)).toList();
+  }
+
+  Future<List<Track>> getNewTracks({int offset = 0, int count = 50}) async {
+    try {
+      return await getPopular(offset: offset, count: count);
+    } catch (_) {
+      return await getRecommendations(offset: offset, count: count);
+    }
+  }
+
+  Future<List<Playlist>> getNewAlbums({int offset = 0, int count = 30}) async {
+    try {
+      final data = await _apiCall('audio.getPlaylists', {
+        'offset': offset,
+        'count': count,
+      });
+      final items = data['items'] as List;
+      return items.map((e) => Playlist.fromJson(e)).toList();
+    } catch (_) {
+      return await getPlaylists(offset: offset, count: count);
+    }
   }
 }

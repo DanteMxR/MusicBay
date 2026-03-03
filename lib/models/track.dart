@@ -30,13 +30,7 @@ class Track {
   }
 
   factory Track.fromJson(Map<String, dynamic> json) {
-    String? thumb;
-    if (json['album'] != null && json['album']['thumb'] != null) {
-      thumb = json['album']['thumb']['photo_300'] ??
-          json['album']['thumb']['photo_270'] ??
-          json['album']['thumb']['photo_135'] ??
-          json['album']['thumb']['photo_68'];
-    }
+    final thumb = _extractThumb(json);
 
     return Track(
       id: json['id'] ?? 0,
@@ -51,27 +45,152 @@ class Track {
     );
   }
 
+  static String? _extractThumb(Map<String, dynamic> json) {
+    final candidates = <dynamic>[
+      json['album'],
+      json['album']?['thumb'],
+      json['album']?['photo'],
+      json['track_covers'],
+      json['thumb'],
+      json['photo'],
+      json['cover_url'],
+      json['artwork_url'],
+      json['main_artists'],
+    ];
+
+    for (final candidate in candidates) {
+      final extracted = _extractImageFromDynamic(candidate);
+      if (extracted != null && extracted.isNotEmpty) {
+        return extracted;
+      }
+    }
+
+    final deep = _extractImageFromDynamic(json);
+    if (deep != null && deep.isNotEmpty) return deep;
+    return null;
+  }
+
+  static String? _extractImageFromDynamic(dynamic value) {
+    if (value == null) return null;
+
+    if (value is String) {
+      final normalized = _normalizeImageUrl(value);
+      if (normalized != null) {
+        return normalized;
+      }
+      return null;
+    }
+
+    if (value is List) {
+      for (final item in value) {
+        final extracted = _extractImageFromDynamic(item);
+        if (extracted != null) return extracted;
+      }
+      return null;
+    }
+
+    if (value is Map) {
+      const preferredKeys = [
+        'photo_1200',
+        'photo_800',
+        'photo_600',
+        'photo_500',
+        'photo_300',
+        'photo_270',
+        'photo_200',
+        'photo_135',
+        'photo_68',
+        'url',
+        'cover_url',
+        'artwork_url',
+      ];
+
+      for (final key in preferredKeys) {
+        final extracted = _extractImageFromDynamic(value[key]);
+        if (extracted != null) return extracted;
+      }
+
+      for (final entry in value.entries) {
+        final key = entry.key.toString().toLowerCase();
+        if (key.contains('photo') ||
+            key.contains('thumb') ||
+            key.contains('cover') ||
+            key.contains('image') ||
+            key.contains('artwork')) {
+          final extracted = _extractImageFromDynamic(entry.value);
+          if (extracted != null) return extracted;
+        }
+      }
+
+      for (final nested in value.values) {
+        final extracted = _extractImageFromDynamic(nested);
+        if (extracted != null) return extracted;
+      }
+    }
+
+    return null;
+  }
+
+  static String? _normalizeImageUrl(String raw) {
+    var value = raw.trim();
+    if (value.isEmpty) return null;
+
+    value = value.replaceAll(r'\/', '/');
+    if (value.startsWith('//')) {
+      value = 'https:$value';
+    }
+    if (value.startsWith('http://')) {
+      value = 'https://${value.substring(7)}';
+    }
+
+    final lower = value.toLowerCase();
+    if (!lower.startsWith('https://')) return null;
+    if (_looksLikeNonImage(lower)) return null;
+    return value;
+  }
+
+  static bool _looksLikeNonImage(String lowerUrl) {
+    const nonImageExt = [
+      '.mp3',
+      '.m4a',
+      '.aac',
+      '.ogg',
+      '.wav',
+      '.flac',
+      '.opus',
+      '.webm',
+      '.mp4',
+      '.mkv',
+      '.m3u8',
+      '.ts',
+    ];
+    for (final ext in nonImageExt) {
+      if (lowerUrl.contains(ext)) return true;
+    }
+    return false;
+  }
+
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'owner_id': ownerId,
-        'artist': artist,
-        'title': title,
-        'duration': duration,
-        'url': url,
-        'album_thumb': albumThumb,
-        'album_id': albumId,
-        'is_explicit': isExplicit,
-      };
+    'id': id,
+    'owner_id': ownerId,
+    'artist': artist,
+    'title': title,
+    'duration': duration,
+    'url': url,
+    'album_thumb': albumThumb,
+    'album_id': albumId,
+    'is_explicit': isExplicit,
+  };
 
   factory Track.fromCache(Map<String, dynamic> json) => Track(
-        id: json['id'],
-        ownerId: json['owner_id'],
-        artist: json['artist'],
-        title: json['title'],
-        duration: json['duration'],
-        url: json['url'] ?? '',
-        albumThumb: json['album_thumb'],
-        albumId: json['album_id'],
-        isExplicit: json['is_explicit'] ?? false,
-      );
+    id: json['id'],
+    ownerId: json['owner_id'],
+    artist: json['artist'],
+    title: json['title'],
+    duration: json['duration'],
+    url: json['url'] ?? '',
+    albumThumb: json['album_thumb'],
+    albumId: json['album_id'],
+    isExplicit: json['is_explicit'] ?? false,
+  );
 }

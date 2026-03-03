@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -75,37 +77,43 @@ class AudioPlayerService {
 
   Future<void> toggleShuffle() async => _safeHandler.toggleShuffle();
 
+  Future<void> recoverDecoderGlitch() async =>
+      _safeHandler.recoverDecoderGlitch();
+
   Future<void> dispose() async => _safeHandler.stop();
 }
 
 enum RepeatMode { off, all, one }
 
-class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+class MusicAudioHandler extends BaseAudioHandler
+    with QueueHandler, SeekHandler {
   final AudioPlayer _player;
-  final ConcatenatingAudioSource _playlist =
-      ConcatenatingAudioSource(children: []);
+  List<AudioSource> _playlistSources = [];
 
   List<Track> _tracks = [];
   int _currentIndex = -1;
   RepeatMode _repeatMode = RepeatMode.off;
   bool _shuffle = false;
+  bool _rebindAfterTrackChangeInProgress = false;
+  int _lastReboundIndex = -1;
 
   MusicAudioHandler(this._player) {
+    unawaited(_player.setSpeed(1.0));
+
     _player.currentIndexStream.listen((index) {
       if (index != null && index >= 0 && index < _tracks.length) {
         _currentIndex = index;
         mediaItem.add(_trackToMediaItem(_tracks[index]));
+        if (Platform.isAndroid &&
+            !_rebindAfterTrackChangeInProgress &&
+            _lastReboundIndex != index) {
+          unawaited(_rebindDecoderAfterTrackChange(index));
+        }
       }
       _broadcastState();
     });
 
-    _player.processingStateStream.listen((state) async {
-      if (state == ProcessingState.completed && _repeatMode == RepeatMode.one) {
-        await _player.seek(Duration.zero);
-        await _player.play();
-      }
-      _broadcastState();
-    });
+    _player.processingStateStream.listen((_) => _broadcastState());
 
     _player.playbackEventStream.listen(
       (_) => _broadcastState(),
@@ -119,8 +127,8 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   int get currentIndex => _currentIndex;
   Track? get currentTrack =>
       _currentIndex >= 0 && _currentIndex < _tracks.length
-          ? _tracks[_currentIndex]
-          : null;
+      ? _tracks[_currentIndex]
+      : null;
 
   RepeatMode get repeatMode => _repeatMode;
   bool get shuffle => _shuffle;
@@ -139,12 +147,10 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (idx >= 0) _currentIndex = idx;
     }
 
-    await _playlist.clear();
-
     final mediaItems = _tracks.map(_trackToMediaItem).toList();
     queue.add(mediaItems);
 
-    final sources = _tracks.asMap().entries.map((entry) {
+    _playlistSources = _tracks.asMap().entries.map((entry) {
       final index = entry.key;
       final track = entry.value;
       return AudioSource.uri(
@@ -153,8 +159,18 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       );
     }).toList();
 
-    await _playlist.addAll(sources);
-    await _player.setAudioSource(_playlist, initialIndex: _currentIndex);
+    if (_player.speed != 1.0) {
+      await _player.setSpeed(1.0);
+    }
+    await _player.setAudioSources(
+      _playlistSources,
+      initialIndex: _currentIndex,
+    );
+    await _player.setLoopMode(_mapLoopMode(_repeatMode));
+    await _player.setShuffleModeEnabled(_shuffle);
+    if (_shuffle) {
+      await _player.shuffle();
+    }
     mediaItem.add(mediaItems[_currentIndex]);
     _broadcastState();
   }
@@ -172,15 +188,15 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     switch (_repeatMode) {
       case RepeatMode.off:
         _repeatMode = RepeatMode.all;
-        await _player.setLoopMode(LoopMode.all);
+        await _player.setLoopMode(_mapLoopMode(_repeatMode));
         break;
       case RepeatMode.all:
         _repeatMode = RepeatMode.one;
-        await _player.setLoopMode(LoopMode.one);
+        await _player.setLoopMode(_mapLoopMode(_repeatMode));
         break;
       case RepeatMode.one:
         _repeatMode = RepeatMode.off;
-        await _player.setLoopMode(LoopMode.off);
+        await _player.setLoopMode(_mapLoopMode(_repeatMode));
         break;
     }
     _broadcastState();
@@ -192,8 +208,67 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _broadcastState();
   }
 
+  Future<void> recoverDecoderGlitch() async {
+    if (_tracks.isEmpty) return;
+    final idx = _player.currentIndex ?? _currentIndex;
+    if (idx < 0 || idx >= _tracks.length) return;
+
+    final wasPlaying = _player.playing;
+    final pos = _player.position;
+
+    try {
+      await _player.stop();
+      await _player.setAudioSources(
+        _playlistSources,
+        initialIndex: idx,
+        initialPosition: pos,
+      );
+      await _player.setLoopMode(_mapLoopMode(_repeatMode));
+      await _player.setShuffleModeEnabled(_shuffle);
+      if (_shuffle) {
+        await _player.shuffle();
+      }
+      if (wasPlaying) {
+        await _player.play();
+      }
+    } catch (e) {
+      debugPrint('Decoder recovery failed: $e');
+    }
+    _broadcastState();
+  }
+
+  Future<void> _rebindDecoderAfterTrackChange(int index) async {
+    if (_tracks.isEmpty) return;
+    _rebindAfterTrackChangeInProgress = true;
+    _lastReboundIndex = index;
+    try {
+      final wasPlaying = _player.playing;
+      await _player.setAudioSources(
+        _playlistSources,
+        initialIndex: index,
+        initialPosition: Duration.zero,
+      );
+      await _player.setSpeed(1.0);
+      await _player.setLoopMode(_mapLoopMode(_repeatMode));
+      await _player.setShuffleModeEnabled(_shuffle);
+      if (_shuffle) {
+        await _player.shuffle();
+      }
+      if (wasPlaying) {
+        await _player.play();
+      }
+    } catch (e) {
+      debugPrint('Track-change decoder rebind failed: $e');
+    } finally {
+      _rebindAfterTrackChangeInProgress = false;
+    }
+  }
+
   @override
   Future<void> play() async {
+    if (_player.speed != 1.0) {
+      await _player.setSpeed(1.0);
+    }
     await _player.play();
     _broadcastState();
   }
@@ -206,6 +281,13 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> setSpeed(double speed) async {
+    // Force normal playback speed to avoid accidental external speed changes.
+    await _player.setSpeed(1.0);
+    _broadcastState();
+  }
 
   @override
   Future<void> skipToNext() async {
@@ -286,6 +368,17 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
+  LoopMode _mapLoopMode(RepeatMode mode) {
+    switch (mode) {
+      case RepeatMode.off:
+        return LoopMode.off;
+      case RepeatMode.all:
+        return LoopMode.all;
+      case RepeatMode.one:
+        return LoopMode.one;
+    }
+  }
+
   MediaItem _trackToMediaItem(Track track) {
     return MediaItem(
       id: track.accessKey,
@@ -298,6 +391,8 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   bool _isLocalPath(String path) {
-    return path.startsWith('/') || path.startsWith('C:') || path.startsWith('D:');
+    return path.startsWith('/') ||
+        path.startsWith('C:') ||
+        path.startsWith('D:');
   }
 }

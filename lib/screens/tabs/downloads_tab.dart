@@ -77,7 +77,11 @@ class _DownloadsTabState extends State<DownloadsTab> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.download_outlined, size: 64, color: Colors.grey),
+                        Icon(
+                          Icons.download_outlined,
+                          size: 64,
+                          color: Colors.grey,
+                        ),
                         SizedBox(height: 16),
                         Text('Нет загруженных треков'),
                         SizedBox(height: 8),
@@ -104,7 +108,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
                         trailing: const Icon(
                           Icons.download_done,
                           size: 20,
-                          color: Colors.green,
+                          color: Color(0xFFFF8A1A),
                         ),
                       );
                     },
@@ -127,7 +131,10 @@ class _DownloadsTabState extends State<DownloadsTab> {
               title: const Text('Удалить из загрузок'),
               onTap: () async {
                 Navigator.pop(ctx);
-                await context.read<CacheService>().removeFromCache(track.id);
+                await context.read<CacheService>().removeFromCache(
+                  track.id,
+                  ownerId: track.ownerId,
+                );
                 _loadCached();
               },
             ),

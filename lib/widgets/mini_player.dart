@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/audio_provider.dart';
 import '../screens/player_screen.dart';
+import 'artwork_image.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({super.key});
@@ -17,19 +17,28 @@ class MiniPlayer extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const PlayerScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const PlayerScreen()));
       },
       child: Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(16),
           border: Border(
             top: BorderSide(
               color: theme.colorScheme.outlineVariant,
               width: 0.5,
             ),
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -53,8 +62,7 @@ class MiniPlayer extends StatelessWidget {
               },
             ),
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
                   // Album art
@@ -63,16 +71,15 @@ class MiniPlayer extends StatelessWidget {
                     child: SizedBox(
                       width: 40,
                       height: 40,
-                      child: track.albumThumb != null
-                          ? CachedNetworkImage(
-                              imageUrl: track.albumThumb!,
-                              fit: BoxFit.cover,
-                            )
-                          : Container(
-                              color:
-                                  theme.colorScheme.surfaceContainerHighest,
-                              child: const Icon(Icons.music_note, size: 20),
-                            ),
+                      child: ArtworkImage(
+                        track: track,
+                        width: 40,
+                        height: 40,
+                        placeholder: Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: const Icon(Icons.music_note, size: 20),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
