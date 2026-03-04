@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/track.dart';
 import '../../providers/vk_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../services/cache_service.dart';
@@ -21,12 +22,25 @@ class _MyMusicTabState extends State<MyMusicTab> {
   Timer? _searchDebounce;
   String _searchQuery = '';
   bool _isSearchMode = false;
+  bool _prefetchScheduled = false;
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _prefetchMyTracks(VkProvider vk, {ScrollMetrics? metrics}) {
+    if (_filter != _MyMusicFilter.all) return;
+    if (_searchQuery.isNotEmpty) return;
+    if (vk.myTracksLoading || !vk.myTracksHasMore) return;
+
+    // Trigger earlier than the physical end to keep long lists responsive.
+    final shouldLoad = metrics == null || metrics.extentAfter < 1400;
+    if (!shouldLoad) return;
+
+    vk.loadMyTracks();
   }
 
   @override
@@ -86,6 +100,20 @@ class _MyMusicTabState extends State<MyMusicTab> {
   }
 
   Widget _buildBody(BuildContext context, VkProvider vk, AudioProvider audio) {
+    if (!_prefetchScheduled &&
+        _filter == _MyMusicFilter.all &&
+        _searchQuery.isEmpty &&
+        !vk.myTracksLoading &&
+        vk.myTracksHasMore &&
+        vk.myTracks.length < 120) {
+      _prefetchScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _prefetchScheduled = false;
+        if (!mounted) return;
+        _prefetchMyTracks(context.read<VkProvider>());
+      });
+    }
+
     if (vk.myTracksLoading && vk.myTracks.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -142,10 +170,9 @@ class _MyMusicTabState extends State<MyMusicTab> {
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
-        if (_filter == _MyMusicFilter.all &&
-            notification.metrics.pixels >
-                notification.metrics.maxScrollExtent - 200) {
-          vk.loadMyTracks();
+        if (notification is ScrollUpdateNotification ||
+            notification is UserScrollNotification) {
+          _prefetchMyTracks(vk, metrics: notification.metrics);
         }
         return false;
       },
@@ -170,6 +197,12 @@ class _MyMusicTabState extends State<MyMusicTab> {
                     onSelected: (_) =>
                         setState(() => _filter = _MyMusicFilter.downloaded),
                   ),
+                  if (cachedKeys.isNotEmpty)
+                    ActionChip(
+                      avatar: const Icon(Icons.delete_sweep_outlined, size: 18),
+                      label: const Text('Очистить кэш'),
+                      onPressed: () => _showClearCacheDialog(context),
+                    ),
                 ],
               ),
             );
@@ -221,7 +254,10 @@ class _MyMusicTabState extends State<MyMusicTab> {
     );
   }
 
-  void _showTrackMenu(BuildContext context, dynamic track, VkProvider vk) {
+  void _showTrackMenu(BuildContext context, Track track, VkProvider vk) {
+    final cache = context.read<CacheService>();
+    final isCached = cache.isTrackCached(track.id, ownerId: track.ownerId);
+
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -231,13 +267,58 @@ class _MyMusicTabState extends State<MyMusicTab> {
             ListTile(
               leading: const Icon(Icons.delete_outline),
               title: const Text('Удалить из моей музыки'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(ctx);
-                vk.deleteTrack(track);
+                await vk.deleteTrack(track);
               },
             ),
+            if (isCached)
+              ListTile(
+                leading: const Icon(Icons.delete_sweep_outlined),
+                title: const Text('Удалить скачанный трек (кэш)'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await cache.removeFromCache(
+                    track.id,
+                    ownerId: track.ownerId,
+                  );
+                  if (!context.mounted) return;
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Кэш трека очищен')),
+                  );
+                },
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showClearCacheDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Очистить кэш'),
+        content: const Text('Удалить все скачанные треки с устройства?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await context.read<CacheService>().clearCache();
+              if (!context.mounted) return;
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Кэш очищен')),
+              );
+            },
+            child: const Text('Очистить'),
+          ),
+        ],
       ),
     );
   }

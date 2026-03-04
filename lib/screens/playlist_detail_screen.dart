@@ -5,6 +5,7 @@ import '../models/track.dart';
 import '../providers/audio_provider.dart';
 import '../providers/vk_provider.dart';
 import '../services/cache_service.dart';
+import '../widgets/mini_player.dart';
 import '../widgets/track_tile.dart';
 
 class PlaylistDetailScreen extends StatefulWidget {
@@ -47,6 +48,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final audio = context.watch<AudioProvider>();
+    final playableTracks = _tracks
+        .where((track) => track.url.isNotEmpty)
+        .toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -74,13 +78,33 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               itemCount: _tracks.length,
               itemBuilder: (context, index) {
                 final track = _tracks[index];
-                final isPlaying = audio.currentTrack?.id == track.id;
+                final isPlaying =
+                    audio.currentTrack?.id == track.id &&
+                    audio.currentTrack?.ownerId == track.ownerId;
 
                 return TrackTile(
                   track: track,
                   isPlaying: isPlaying,
                   onTap: () {
-                    audio.playPauseTrack(track, _tracks, startIndex: index);
+                    if (track.url.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Трек недоступен для воспроизведения'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final startIndex = playableTracks.indexWhere(
+                      (t) => t.id == track.id && t.ownerId == track.ownerId,
+                    );
+                    if (startIndex < 0) return;
+
+                    audio.playPauseTrack(
+                      track,
+                      playableTracks,
+                      startIndex: startIndex,
+                    );
                   },
                   trailing: IconButton(
                     icon: const Icon(Icons.bookmark_add_outlined),
@@ -90,6 +114,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 );
               },
             ),
+      bottomNavigationBar: audio.currentTrack != null ? const MiniPlayer() : null,
     );
   }
 
@@ -121,3 +146,4 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     ).showSnackBar(SnackBar(content: Text('Скачано треков: $cached')));
   }
 }
+

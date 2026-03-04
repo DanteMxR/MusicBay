@@ -21,11 +21,14 @@ class TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isUnavailable = track.url.trim().isEmpty;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      tileColor: isPlaying
+      tileColor: isUnavailable
+          ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35)
+          : isPlaying
           ? theme.colorScheme.primary.withValues(alpha: 0.12)
           : Colors.transparent,
       leading: ClipRRect(
@@ -49,16 +52,22 @@ class TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: isPlaying ? theme.colorScheme.primary : Colors.white,
+          color: isUnavailable
+              ? theme.colorScheme.onSurfaceVariant
+              : isPlaying
+              ? theme.colorScheme.primary
+              : Colors.white,
           fontWeight: isPlaying ? FontWeight.w600 : null,
         ),
       ),
       subtitle: Text(
-        track.artist,
+        isUnavailable ? '${track.artist} • Недоступно в регионе' : track.artist,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: isPlaying
+          color: isUnavailable
+              ? theme.colorScheme.onSurfaceVariant
+              : isPlaying
               ? theme.colorScheme.primary.withValues(alpha: 0.7)
               : null,
         ),
@@ -71,7 +80,19 @@ class TrackTile extends StatelessWidget {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-      onTap: onTap,
+      onTap: () {
+        if (isUnavailable) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Этот трек недоступен в вашем регионе или через текущий источник',
+              ),
+            ),
+          );
+          return;
+        }
+        onTap();
+      },
       onLongPress: onLongPress,
     );
   }

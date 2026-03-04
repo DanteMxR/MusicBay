@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../providers/audio_provider.dart';
 import '../providers/vk_provider.dart';
+import '../widgets/mini_player.dart';
 import '../widgets/track_tile.dart';
 
 class GeneratedAlbumScreen extends StatelessWidget {
@@ -66,6 +67,7 @@ class GeneratedAlbumScreen extends StatelessWidget {
                 );
               },
             ),
+      bottomNavigationBar: audio.currentTrack != null ? const MiniPlayer() : null,
     );
   }
 
@@ -92,3 +94,4 @@ class GeneratedAlbumScreen extends StatelessWidget {
     );
   }
 }
+

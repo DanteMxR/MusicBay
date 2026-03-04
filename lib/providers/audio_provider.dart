@@ -49,35 +49,58 @@ class AudioProvider extends ChangeNotifier {
   }
 
   Future<void> playPauseTrack(Track track, List<Track> playlist, {int startIndex = 0}) async {
+    if (track.url.trim().isEmpty) return;
+
     final isCurrentTrack = isPlayingTrack(track);
-    
+
     if (isCurrentTrack) {
-      // Тот же трек — ставим на паузу или возобновляем
       await playPause();
     } else {
-      // Другой трек — запускаем новый
-      await playPlaylist(playlist, startIndex: startIndex);
+      final playable = playlist
+          .where((t) => t.url.trim().isNotEmpty)
+          .toList(growable: false);
+      if (playable.isEmpty) return;
+
+      var resolvedIndex = playable.indexWhere(
+        (t) => t.id == track.id && t.ownerId == track.ownerId,
+      );
+
+      if (resolvedIndex < 0 && playlist.isNotEmpty) {
+        final clamped = startIndex.clamp(0, playlist.length - 1);
+        final candidate = playlist[clamped];
+        resolvedIndex = playable.indexWhere(
+          (t) => t.id == candidate.id && t.ownerId == candidate.ownerId,
+        );
+      }
+
+      if (resolvedIndex < 0) resolvedIndex = 0;
+      await playPlaylist(playable, startIndex: resolvedIndex);
     }
   }
-
   Stream<Duration> get positionStream => _audioService.positionStream;
   Stream<Duration?> get durationStream => _audioService.durationStream;
   Stream<PlayerState> get playerStateStream => _audioService.playerStateStream;
 
   Future<void> playPlaylist(List<Track> tracks, {int startIndex = 0}) async {
+    final playableTracks = tracks
+        .where((t) => t.url.trim().isNotEmpty)
+        .toList(growable: false);
+    if (playableTracks.isEmpty) return;
+
+    final safeStartIndex = startIndex.clamp(0, playableTracks.length - 1);
+
     // If the same playlist is already loaded, just switch track
-    if (_isSamePlaylist(tracks) && !_switchingPlaylist) {
-      final target = (startIndex >= 0 && startIndex < tracks.length)
-          ? tracks[startIndex]
-          : null;
-      var resolvedIndex = startIndex;
-      if (target != null) {
-        final idx = _audioService.tracks.indexWhere(
-          (t) => t.id == target.id && t.ownerId == target.ownerId,
-        );
-        if (idx >= 0) resolvedIndex = idx;
+    if (_isSamePlaylist(playableTracks) && !_switchingPlaylist) {
+      var resolvedIndex = safeStartIndex;
+
+      // Avoid restarting the same track when it is already selected.
+      if (resolvedIndex == _audioService.currentIndex) {
+        if (!_audioService.isPlaying) {
+          await _audioService.play();
+        }
+      } else {
+        await _audioService.playTrackAt(resolvedIndex);
       }
-      await _audioService.playTrackAt(resolvedIndex);
       notifyListeners();
       return;
     }
@@ -86,7 +109,7 @@ class AudioProvider extends ChangeNotifier {
     _switchingPlaylist = true;
     // Replace URLs with cached paths where available
     try {
-      final resolvedTracks = tracks.map((track) {
+      final resolvedTracks = playableTracks.map((track) {
         final cachedPath = _cacheService.getCachedPath(
           track.id,
           ownerId: track.ownerId,
@@ -109,7 +132,7 @@ class AudioProvider extends ChangeNotifier {
         return track;
       }).toList();
 
-      await _audioService.setPlaylist(resolvedTracks, startIndex: startIndex);
+      await _audioService.setPlaylist(resolvedTracks, startIndex: safeStartIndex);
       await _audioService.play();
       await _cacheCurrentTrackIfNeeded();
       notifyListeners();
@@ -119,7 +142,6 @@ class AudioProvider extends ChangeNotifier {
       _switchingPlaylist = false;
     }
   }
-
   Future<void> playPause() async {
     await _audioService.playPause();
     notifyListeners();
@@ -231,3 +253,4 @@ class AudioProvider extends ChangeNotifier {
     await _audioService.recoverDecoderGlitch();
   }
 }
+

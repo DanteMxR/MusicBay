@@ -135,7 +135,10 @@ class MusicAudioHandler extends BaseAudioHandler
 
     _currentIndex = 0;
     if (selectedTrack != null && selectedTrack.url.isNotEmpty) {
-      final idx = _tracks.indexWhere((t) => t.id == selectedTrack.id);
+      final idx = _tracks.indexWhere(
+        (t) =>
+            t.id == selectedTrack.id && t.ownerId == selectedTrack.ownerId,
+      );
       if (idx >= 0) _currentIndex = idx;
     }
 

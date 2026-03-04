@@ -204,13 +204,13 @@ class VkProvider extends ChangeNotifier {
       );
       _myTracksHasMore = tracks.isNotEmpty;
       if (refresh) {
-        _myTracks = tracks;
+        _myTracks = _dedupeTracks(tracks);
         _savedTrackKeys
           ..clear()
-          ..addAll(tracks.map((t) => _trackKey(t.id, t.ownerId)));
+          ..addAll(_myTracks.map((t) => _trackKey(t.id, t.ownerId)));
       } else {
-        _myTracks.addAll(tracks);
-        _savedTrackKeys.addAll(tracks.map((t) => _trackKey(t.id, t.ownerId)));
+        _myTracks = _dedupeTracks([..._myTracks, ...tracks]);
+        _savedTrackKeys.addAll(_myTracks.map((t) => _trackKey(t.id, t.ownerId)));
       }
     } catch (e) {
       _myTracksError = e.toString();
