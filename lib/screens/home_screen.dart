@@ -32,8 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final vk = context.read<VkProvider>();
       vk.loadMyTracks(refresh: true);
       vk.loadPlaylists();
-      vk.loadRecommendations(refresh: true);
-      vk.loadNewReleases(refresh: true);
+      vk.loadDiscovery(refresh: true);
     });
   }
 

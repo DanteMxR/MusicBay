@@ -294,4 +294,52 @@ class VkApiService {
       return await getPlaylists(offset: offset, count: count);
     }
   }
+
+  Future<List<Playlist>> getPopularAlbums({int count = 20}) async {
+    final popularTracks = await getPopular(offset: 0, count: 140);
+    return _albumsFromTracks(popularTracks).take(count).toList(growable: false);
+  }
+
+  Future<List<Playlist>> getAlbumsByArtist(
+    String artist, {
+    int count = 20,
+  }) async {
+    final fromArtist = await searchAudio(artist, offset: 0, count: 100);
+    final fromAlbumQuery = await searchAudio(
+      '$artist album',
+      offset: 0,
+      count: 100,
+    );
+    final merged = [...fromArtist, ...fromAlbumQuery];
+    final filtered = merged.where((track) {
+      final a = track.artist.toLowerCase();
+      final needle = artist.toLowerCase();
+      return a.contains(needle) || needle.contains(a);
+    }).toList(growable: false);
+
+    return _albumsFromTracks(filtered).take(count).toList(growable: false);
+  }
+
+  List<Playlist> _albumsFromTracks(List<Track> tracks) {
+    final byKey = <String, Playlist>{};
+    for (final track in tracks) {
+      if (track.albumId == null || track.albumOwnerId == null) continue;
+      final key = '${track.albumOwnerId}_${track.albumId}';
+      byKey.putIfAbsent(
+        key,
+        () => Playlist(
+          id: track.albumId!,
+          ownerId: track.albumOwnerId!,
+          title: (track.albumTitle?.trim().isNotEmpty ?? false)
+              ? track.albumTitle!
+              : '${track.artist} - ${track.title}',
+          count: 0,
+          createTime: 0,
+          updateTime: 0,
+          photo: track.albumThumb,
+        ),
+      );
+    }
+    return byKey.values.toList(growable: false);
+  }
 }

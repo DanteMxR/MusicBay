@@ -1,10 +1,11 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/vk_provider.dart';
-import '../../screens/playlist_detail_screen.dart';
+import '../../screens/generated_album_screen.dart';
 import '../../widgets/artwork_image.dart';
 import '../../widgets/track_tile.dart';
 
@@ -17,6 +18,7 @@ class HomeFeedTab extends StatefulWidget {
 
 class _HomeFeedTabState extends State<HomeFeedTab> {
   String? _selectedArtist;
+  int _albumSeed = DateTime.now().millisecondsSinceEpoch;
 
   @override
   Widget build(BuildContext context) {
@@ -24,83 +26,156 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
     final audio = context.watch<AudioProvider>();
     final theme = Theme.of(context);
 
-    final dailyTracks = _uniqueTracks(vk.recommendations).take(24).toList();
-    final freshTracks = _uniqueTracks(vk.newTracks).take(30).toList();
-    final allForArtists = _uniqueTracks([...dailyTracks, ...freshTracks]);
+    final dailyMix =
+        _uniqueTracks(vk.dailyMix.isNotEmpty ? vk.dailyMix : vk.recommendations);
+    final freshTracks = _uniqueTracks(vk.newTracks);
+    final allForArtists = _uniqueTracks([...dailyMix, ...freshTracks]);
+    final forToday = dailyMix.isNotEmpty
+        ? dailyMix
+        : _uniqueTracks([
+            ...vk.recommendations,
+            ...freshTracks,
+            ...vk.myTracks,
+          ]).take(30).toList(growable: false);
+
+    final generatedAlbums = _buildGeneratedAlbums(
+      [...vk.myTracks, ...vk.recommendations],
+      _albumSeed,
+    );
 
     final artistMap = <String, List<Track>>{};
     for (final track in allForArtists) {
       artistMap.putIfAbsent(track.artist, () => []).add(track);
     }
-    final artists = artistMap.keys.toList();
+    final artists = artistMap.keys.take(12).toList(growable: false);
     final artistTracks = _selectedArtist != null
         ? (artistMap[_selectedArtist!] ?? const <Track>[])
         : const <Track>[];
 
-    // Альбомы скрыты, т.к. VK API не возвращает информацию об альбомах
-    // final releaseCards = <Track>[];
-    // final releaseSeen = <String>{};
-    // for (final t in freshTracks) {
-    //   final key = '${t.artist}_${t.albumId ?? t.id}_${t.albumThumb ?? ''}';
-    //   if (releaseSeen.add(key)) {
-    //     releaseCards.add(t);
-    //   }
-    //   if (releaseCards.length >= 12) break;
-    // }
-
     return Scaffold(
       appBar: AppBar(title: const Text('Главная')),
       body: RefreshIndicator(
-        onRefresh: () async {
-          await vk.loadRecommendations(refresh: true);
-          await vk.loadNewReleases(refresh: true);
-        },
+        onRefresh: () => vk.loadDiscovery(refresh: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  colors: [
-                    theme.colorScheme.primary.withValues(alpha: 0.26),
-                    theme.colorScheme.surfaceContainerHigh,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Рекомендации дня',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Подборка под твой вкус на сегодня',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+            _buildHero(
+              theme,
+              dailyMix.length,
+              artists.isNotEmpty ? artists.first : null,
             ),
-            if (artists.isNotEmpty) ...[
+            if (generatedAlbums.isNotEmpty) ...[
+              const _SectionTitle(
+                title: 'Альбомы дня',
+                subtitle: 'Собрано из ваших треков',
+              ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-                child: Text(
-                  'Выбор по артистам',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        setState(() => _albumSeed = DateTime.now().millisecondsSinceEpoch),
+                    icon: const Icon(Icons.shuffle),
+                    label: const Text('Пересобрать'),
                   ),
                 ),
+              ),
+              SizedBox(
+                height: 214,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: generatedAlbums.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (_, i) {
+                    final album = generatedAlbums[i];
+                    final firstTrack = album.tracks.first;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => GeneratedAlbumScreen(
+                            title: album.title,
+                            subtitle: album.subtitle,
+                            tracks: album.tracks,
+                          ),
+                        ),
+                      ),
+                      child: SizedBox(
+                        width: 150,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: SizedBox(
+                                width: 150,
+                                height: 150,
+                                child: ArtworkImage(
+                                  track: firstTrack,
+                                  width: 150,
+                                  height: 150,
+                                  placeholder: Container(
+                                    color: theme.colorScheme.surfaceContainerHighest,
+                                    child: const Icon(Icons.album_outlined, size: 30),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              album.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '${album.tracks.length} треков',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+            if (dailyMix.isNotEmpty) ...[
+              _SectionTitle(
+                title: 'Микс дня',
+                subtitle: 'Собрано из рекомендаций, трендов и любимых артистов',
+              ),
+              SizedBox(
+                height: 210,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: dailyMix.length < 12 ? dailyMix.length : 12,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (_, i) {
+                    final track = dailyMix[i];
+                    return _MixTrackCard(
+                      track: track,
+                      onTap: () =>
+                          audio.playPauseTrack(track, dailyMix, startIndex: i),
+                    );
+                  },
+                ),
+              ),
+            ],
+            if (artists.isNotEmpty) ...[
+              const _SectionTitle(
+                title: 'По артистам',
+                subtitle: 'Выберите настроение через любимых исполнителей',
               ),
               SizedBox(
                 height: 42,
@@ -116,9 +191,8 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                       selected: _selectedArtist == artist,
                       onSelected: (_) {
                         setState(() {
-                          _selectedArtist = _selectedArtist == artist
-                              ? null
-                              : artist;
+                          _selectedArtist =
+                              _selectedArtist == artist ? null : artist;
                         });
                       },
                     );
@@ -134,130 +208,21 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                         audio.currentTrack?.id == track.id &&
                         audio.currentTrack?.ownerId == track.ownerId,
                     trailing: _buildAddToLibraryButton(context, track),
-                    onTap: () =>
-                        audio.playPauseTrack(track, artistTracks, startIndex: index),
+                    onTap: () => audio.playPauseTrack(
+                      track,
+                      artistTracks,
+                      startIndex: index,
+                    ),
                   );
                 }),
             ],
-            // Альбомы скрыты, т.к. VK API не возвращает информацию об альбомах в рекомендациях
-            // if (releaseCards.isNotEmpty) ...[
-            //   Padding(
-            //     padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
-            //     child: Text(
-            //       'Новые альбомы и релизы',
-            //       style: theme.textTheme.titleMedium?.copyWith(
-            //         fontWeight: FontWeight.bold,
-            //       ),
-            //     ),
-            //   ),
-            //   SizedBox(
-            //     height: 218,
-            //     child: ListView.separated(
-            //       scrollDirection: Axis.horizontal,
-            //       padding: const EdgeInsets.symmetric(horizontal: 16),
-            //       itemCount: releaseCards.length,
-            //       separatorBuilder: (_, _) => const SizedBox(width: 12),
-            //       itemBuilder: (_, i) {
-            //         final track = releaseCards[i];
-            //         final title = track.title;
-            //         final subtitle = track.artist;
-            //         return InkWell(
-            //           borderRadius: BorderRadius.circular(14),
-            //           onTap: () {
-            //             if (track.albumId != null && track.albumOwnerId != null) {
-            //               Navigator.of(context).push(
-            //                 MaterialPageRoute(
-            //                   builder: (_) => PlaylistDetailScreen(
-            //                     playlist: Playlist(
-            //                       id: track.albumId!,
-            //                       ownerId: track.albumOwnerId!,
-            //                       title: track.albumTitle ?? track.title,
-            //                       count: 0,
-            //                       createTime: 0,
-            //                       updateTime: 0,
-            //                       photo: track.albumThumb,
-            //                     ),
-            //                   ),
-            //                 ),
-            //               );
-            //             } else {
-            //               final list = freshTracks
-            //                   .where((t) => t.artist == track.artist)
-            //                   .toList();
-            //               final start = list.indexWhere(
-            //                 (t) => t.id == track.id && t.ownerId == track.ownerId,
-            //               );
-            //               audio.playPauseTrack(
-            //                 track,
-            //                 list.isNotEmpty ? list : freshTracks,
-            //                 startIndex: start >= 0 ? start : 0,
-            //               );
-            //             }
-            //           },
-            //           child: SizedBox(
-            //             width: 150,
-            //             child: Column(
-            //               crossAxisAlignment: CrossAxisAlignment.start,
-            //               children: [
-            //                 ClipRRect(
-            //                   borderRadius: BorderRadius.circular(14),
-            //                   child: SizedBox(
-            //                     width: 150,
-            //                     height: 150,
-            //                     child: ArtworkImage(
-            //                       track: track,
-            //                       width: 150,
-            //                       height: 150,
-            //                       placeholder: Container(
-            //                         color: theme
-            //                             .colorScheme
-            //                             .surfaceContainerHighest,
-            //                         child: const Icon(
-            //                           Icons.album_outlined,
-            //                           size: 34,
-            //                         ),
-            //                       ),
-            //                     ),
-            //                   ),
-            //                 ),
-            //                 const SizedBox(height: 8),
-            //                 Text(
-            //                   title,
-            //                   maxLines: 1,
-            //                   overflow: TextOverflow.ellipsis,
-            //                   style: theme.textTheme.bodyMedium?.copyWith(
-            //                     fontWeight: FontWeight.w700,
-            //                   ),
-            //                 ),
-            //                 const SizedBox(height: 2),
-            //                 Text(
-            //                   subtitle,
-            //                   maxLines: 1,
-            //                   overflow: TextOverflow.ellipsis,
-            //                   style: theme.textTheme.bodySmall?.copyWith(
-            //                     color: theme.colorScheme.onSurfaceVariant,
-            //                   ),
-            //                 ),
-            //               ],
-            //             ),
-            //           ),
-            //         );
-            //       },
-            //     ),
-            //   ),
-            // ],
-            if (dailyTracks.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
-                child: Text(
-                  'Для тебя сегодня',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+            if (forToday.isNotEmpty) ...[
+              const _SectionTitle(
+                title: 'Для тебя сегодня',
+                subtitle: 'Полный список микса дня',
               ),
-              ...dailyTracks.take(10).map((track) {
-                final index = dailyTracks.indexOf(track);
+              ...forToday.map((track) {
+                final index = forToday.indexOf(track);
                 return TrackTile(
                   track: track,
                   isPlaying:
@@ -265,11 +230,16 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                       audio.currentTrack?.ownerId == track.ownerId,
                   trailing: _buildAddToLibraryButton(context, track),
                   onTap: () =>
-                      audio.playPauseTrack(track, dailyTracks, startIndex: index),
+                      audio.playPauseTrack(track, forToday, startIndex: index),
                 );
               }),
             ],
-            if (dailyTracks.isEmpty && freshTracks.isEmpty)
+            if (vk.discoveryLoading && dailyMix.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            if (!vk.discoveryLoading && dailyMix.isEmpty && freshTracks.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 40),
                 child: Center(child: Text('Пока нет рекомендаций')),
@@ -280,12 +250,110 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
     );
   }
 
+  List<_GeneratedAlbum> _buildGeneratedAlbums(List<Track> rawTracks, int seed) {
+    final tracks = _uniqueTracks(rawTracks).where((t) => t.url.isNotEmpty).toList();
+    if (tracks.length < 6) return const [];
+
+    final result = <_GeneratedAlbum>[];
+    final random = Random(seed);
+
+    final randomTracks = List<Track>.from(tracks)..shuffle(random);
+    for (var i = 0; i < 3; i++) {
+      final start = i * 18;
+      if (start >= randomTracks.length) break;
+      final end = (start + 18).clamp(0, randomTracks.length);
+      final part = randomTracks.sublist(start, end);
+      if (part.length >= 8) {
+        result.add(
+          _GeneratedAlbum(
+            title: 'Альбом дня ${i + 1}',
+            subtitle: 'Автосборка из вашей медиатеки',
+            tracks: part,
+          ),
+        );
+      }
+    }
+
+    final byArtist = <String, List<Track>>{};
+    for (final track in tracks) {
+      byArtist.putIfAbsent(track.artist, () => []).add(track);
+    }
+    final artistEntries = byArtist.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+
+    for (final entry in artistEntries.take(3)) {
+      if (entry.value.length < 5) continue;
+      final list = List<Track>.from(entry.value)..shuffle(Random(seed ^ entry.key.hashCode));
+      result.add(
+        _GeneratedAlbum(
+          title: 'Подборка: ${entry.key}',
+          subtitle: 'Собрано по исполнителю',
+          tracks: list.take(22).toList(growable: false),
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  Widget _buildHero(ThemeData theme, int mixCount, String? topArtist) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primary.withValues(alpha: 0.30),
+            theme.colorScheme.surfaceContainerHigh,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Твой музыкальный день',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Обновляемый ежедневный микс и локальные альбомы',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(
+                avatar: const Icon(Icons.auto_awesome, size: 16),
+                label: Text('Микс: $mixCount'),
+              ),
+              if (topArtist != null)
+                Chip(
+                  avatar: const Icon(Icons.person_outline, size: 16),
+                  label: Text(topArtist),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Track> _uniqueTracks(List<Track> tracks) {
     final byKey = <String, Track>{};
     for (final track in tracks) {
       byKey['${track.ownerId}_${track.id}'] = track;
     }
-    return byKey.values.toList();
+    return byKey.values.toList(growable: false);
   }
 
   Widget _buildAddToLibraryButton(BuildContext context, Track track) {
@@ -312,3 +380,107 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
     );
   }
 }
+
+class _GeneratedAlbum {
+  final String title;
+  final String subtitle;
+  final List<Track> tracks;
+
+  const _GeneratedAlbum({
+    required this.title,
+    required this.subtitle,
+    required this.tracks,
+  });
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _SectionTitle({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MixTrackCard extends StatelessWidget {
+  final Track track;
+  final VoidCallback onTap;
+
+  const _MixTrackCard({required this.track, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: SizedBox(
+        width: 150,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: 150,
+                height: 150,
+                child: ArtworkImage(
+                  track: track,
+                  width: 150,
+                  height: 150,
+                  placeholder: Container(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    child: const Icon(Icons.music_note, size: 30),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(
+              track.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+

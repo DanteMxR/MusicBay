@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/vk_provider.dart';
@@ -16,6 +17,17 @@ class MyMusicTab extends StatefulWidget {
 
 class _MyMusicTabState extends State<MyMusicTab> {
   _MyMusicFilter _filter = _MyMusicFilter.all;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  String _searchQuery = '';
+  bool _isSearchMode = false;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,8 +36,42 @@ class _MyMusicTabState extends State<MyMusicTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Моя музыка'),
+        title: _isSearchMode
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: '\u041f\u043e\u0438\u0441\u043a \u0432 \u043c\u043e\u0435\u0439 \u043c\u0443\u0437\u044b\u043a\u0435',
+                  border: InputBorder.none,
+                ),
+                onChanged: (value) {
+                  final normalized = value.trim().toLowerCase();
+                  setState(() => _searchQuery = normalized);
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+                    if (!mounted || normalized.isEmpty) return;
+                    context.read<VkProvider>().ensureMyTracksLoadedForSearch();
+                  });
+                },
+              )
+            : const Text('Моя музыка'),
         actions: [
+          IconButton(
+            icon: Icon(_isSearchMode ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (_isSearchMode) {
+                  _isSearchMode = false;
+                  _searchDebounce?.cancel();
+                  _searchController.clear();
+                  _searchQuery = '';
+                } else {
+                  _isSearchMode = true;
+                }
+              });
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => _showLogoutDialog(context),
@@ -75,10 +121,23 @@ class _MyMusicTabState extends State<MyMusicTab> {
       }
     }
 
-    final visibleTracks = _filter == _MyMusicFilter.all
+    final filteredByType = _filter == _MyMusicFilter.all
         ? allTracks
         : allTracks
               .where((t) => cachedKeys.contains('${t.ownerId}_${t.id}'))
+              .toList(growable: false);
+
+    final visibleTracks = _searchQuery.isEmpty
+        ? filteredByType
+        : filteredByType
+              .where((t) {
+                final artist = t.artist.toLowerCase();
+                final title = t.title.toLowerCase();
+                final album = (t.albumTitle ?? '').toLowerCase();
+                return artist.contains(_searchQuery) ||
+                    title.contains(_searchQuery) ||
+                    album.contains(_searchQuery);
+              })
               .toList(growable: false);
 
     return NotificationListener<ScrollNotification>(
@@ -206,3 +265,5 @@ class _MyMusicTabState extends State<MyMusicTab> {
     );
   }
 }
+
+
