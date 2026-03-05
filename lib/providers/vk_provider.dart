@@ -437,6 +437,7 @@ class VkProvider extends ChangeNotifier {
 
   Future<void> addTrack(Track track) async {
     await _api.addTrack(track.id, track.ownerId);
+    _myTracks = List<Track>.from(_myTracks, growable: true);
     if (_myTracks.indexWhere(
           (t) => t.id == track.id && t.ownerId == track.ownerId,
         ) ==
@@ -525,6 +526,7 @@ class VkProvider extends ChangeNotifier {
     Iterable<Track> tracks, {
     int? maxCount,
   }) async {
+    _myTracks = List<Track>.from(_myTracks, growable: true);
     var added = 0;
     var processed = 0;
     for (final track in tracks) {
@@ -556,7 +558,7 @@ class VkProvider extends ChangeNotifier {
     for (final track in tracks) {
       byKey[_trackKey(track.id, track.ownerId)] = track;
     }
-    return byKey.values.toList(growable: false);
+    return byKey.values.toList();
   }
 
   List<Playlist> _dedupePlaylists(Iterable<Playlist> playlists) {

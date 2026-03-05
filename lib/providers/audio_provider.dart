@@ -50,9 +50,7 @@ class AudioProvider extends ChangeNotifier {
 
   bool isPlayingTrack(Track track) {
     final current = _audioService.currentTrack;
-    return current != null &&
-        current.id == track.id &&
-        current.ownerId == track.ownerId;
+    return current != null && _isSameTrack(current, track);
   }
 
   Future<void> playPauseTrack(
@@ -72,25 +70,12 @@ class AudioProvider extends ChangeNotifier {
           .toList(growable: false);
       if (playable.isEmpty) return;
 
-      var resolvedIndex = playable.indexWhere(
-        (t) =>
-            t.id == track.id &&
-            t.ownerId == track.ownerId &&
-            t.url == track.url,
+      var resolvedIndex = _resolvePlayableIndex(
+        track: track,
+        playlist: playlist,
+        playable: playable,
+        startIndex: startIndex,
       );
-
-      if (resolvedIndex < 0) {
-        resolvedIndex = playable.indexWhere(
-          (t) => t.id == track.id && t.ownerId == track.ownerId,
-        );
-      }
-
-      if (resolvedIndex < 0) {
-        resolvedIndex = _mapOriginalIndexToPlayableIndex(
-          playlist: playlist,
-          originalIndex: startIndex,
-        );
-      }
 
       if (resolvedIndex < 0) {
         debugPrint(
@@ -154,6 +139,73 @@ class AudioProvider extends ChangeNotifier {
       playableIndex++;
     }
     return -1;
+  }
+
+  int _resolvePlayableIndex({
+    required Track track,
+    required List<Track> playlist,
+    required List<Track> playable,
+    required int startIndex,
+  }) {
+    // Prefer tapped index first, then fallback to track matching.
+    final byOriginalIndex = _mapOriginalIndexToPlayableIndex(
+      playlist: playlist,
+      originalIndex: startIndex,
+    );
+    if (byOriginalIndex >= 0 &&
+        byOriginalIndex < playable.length &&
+        _isSameTrack(playable[byOriginalIndex], track)) {
+      return byOriginalIndex;
+    }
+
+    var byExactTrack = playable.indexWhere((t) => _isSameTrack(t, track));
+    if (byExactTrack >= 0) return byExactTrack;
+
+    byExactTrack = playable.indexWhere(
+      (t) =>
+          t.id == track.id &&
+          t.ownerId == track.ownerId &&
+          t.url == track.url,
+    );
+    if (byExactTrack >= 0) return byExactTrack;
+
+    byExactTrack = playable.indexWhere(
+      (t) => t.id == track.id && t.ownerId == track.ownerId,
+    );
+    if (byExactTrack >= 0) return byExactTrack;
+
+    byExactTrack = playable.indexWhere(
+      (t) =>
+          t.url.trim().isNotEmpty &&
+          t.url == track.url &&
+          t.duration == track.duration,
+    );
+    return byExactTrack;
+  }
+
+  bool _isSameTrack(Track a, Track b) {
+    final aHasIdentity = a.id > 0 && a.ownerId != 0;
+    final bHasIdentity = b.id > 0 && b.ownerId != 0;
+    if (aHasIdentity && bHasIdentity) {
+      if (a.id != b.id || a.ownerId != b.ownerId) return false;
+
+      final aUrl = a.url.trim();
+      final bUrl = b.url.trim();
+      if (aUrl.isNotEmpty && bUrl.isNotEmpty && aUrl != bUrl) {
+        return false;
+      }
+      return true;
+    }
+
+    final aUrl = a.url.trim();
+    final bUrl = b.url.trim();
+    if (aUrl.isNotEmpty && bUrl.isNotEmpty) {
+      return aUrl == bUrl;
+    }
+
+    return a.artist == b.artist &&
+        a.title == b.title &&
+        a.duration == b.duration;
   }
 
   bool _isSamePlaylist(List<Track> tracks) {

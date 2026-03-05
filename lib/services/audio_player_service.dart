@@ -129,19 +129,17 @@ class MusicAudioHandler extends BaseAudioHandler
   bool get shuffle => _shuffle;
 
   Future<void> setPlaylist(List<Track> tracks, {int startIndex = 0}) async {
-    final selectedTrack = (startIndex >= 0 && startIndex < tracks.length)
-        ? tracks[startIndex]
-        : null;
-
-    _tracks = tracks.where((t) => t.url.isNotEmpty).toList();
+    if (tracks.isEmpty) return;
+    final safeOriginalIndex = startIndex.clamp(0, tracks.length - 1);
+    _tracks = tracks.where((t) => t.url.isNotEmpty).toList(growable: false);
     if (_tracks.isEmpty) return;
 
-    _currentIndex = 0;
-    if (selectedTrack != null && selectedTrack.url.isNotEmpty) {
-      final idx = _tracks.indexWhere(
-        (t) => t.id == selectedTrack.id && t.ownerId == selectedTrack.ownerId,
-      );
-      if (idx >= 0) _currentIndex = idx;
+    _currentIndex = _mapOriginalIndexToPlayableIndex(
+      tracks,
+      safeOriginalIndex,
+    );
+    if (_currentIndex < 0 || _currentIndex >= _tracks.length) {
+      _currentIndex = 0;
     }
 
     final mediaItems = _tracks.map(_trackToMediaItem).toList();
@@ -175,9 +173,26 @@ class MusicAudioHandler extends BaseAudioHandler
     _broadcastState();
   }
 
+  int _mapOriginalIndexToPlayableIndex(List<Track> tracks, int originalIndex) {
+    if (tracks.isEmpty) return -1;
+    final safeOriginalIndex = originalIndex.clamp(0, tracks.length - 1);
+    if (tracks[safeOriginalIndex].url.isEmpty) return -1;
+
+    var playableIndex = 0;
+    for (var i = 0; i < tracks.length; i++) {
+      if (tracks[i].url.isEmpty) continue;
+      if (i == safeOriginalIndex) return playableIndex;
+      playableIndex++;
+    }
+    return -1;
+  }
+
   Future<void> playTrackAt(int index) async {
     if (index >= 0 && index < _tracks.length) {
       _currentIndex = index;
+      if (_player.playing) {
+        await _player.pause();
+      }
       try {
         await _player.seek(Duration.zero, index: index);
       } catch (_) {
