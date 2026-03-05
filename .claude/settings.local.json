@@ -6,7 +6,8 @@
       "WebFetch(domain:gist.github.com)",
       "WebFetch(domain:github.com)",
       "Bash(flutter logs:*)",
-      "Bash(flutter pub get:*)"
+      "Bash(flutter pub get:*)",
+      "Bash(flutter analyze:*)"
     ]
   }
 }

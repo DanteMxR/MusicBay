@@ -44,7 +44,12 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: Column(
         children: [
-          Expanded(child: _tabs[currentTab]),
+          Expanded(
+            child: IndexedStack(
+              index: currentTab,
+              children: _tabs,
+            ),
+          ),
           if (audio.currentTrack != null) const MiniPlayer(),
         ],
       ),

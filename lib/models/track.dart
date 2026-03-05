@@ -1,5 +1,3 @@
-import 'dart:developer' as developer;
-
 class Track {
   final int id;
   final int ownerId;
@@ -55,19 +53,6 @@ class Track {
     albumOwnerId ??= json['album_owner_id'];
     albumTitle ??= json['album_title'];
 
-    // Debug logging for album info
-    if (albumId != null) {
-      developer.log(
-        'Track "${json['title']}" has album: id=$albumId, owner=$albumOwnerId, title=$albumTitle',
-        name: 'Track',
-      );
-    } else {
-      developer.log(
-        'Track "${json['title']}" has NO album info',
-        name: 'Track',
-      );
-    }
-
     return Track(
       id: json['id'] ?? 0,
       ownerId: json['owner_id'] ?? 0,
@@ -103,8 +88,6 @@ class Track {
       }
     }
 
-    final deep = _extractImageFromDynamic(json);
-    if (deep != null && deep.isNotEmpty) return deep;
     return null;
   }
 
@@ -200,10 +183,10 @@ class Track {
       '.mp4',
       '.mkv',
       '.m3u8',
-      '.ts',
     ];
+    final path = Uri.tryParse(lowerUrl)?.path ?? lowerUrl;
     for (final ext in nonImageExt) {
-      if (lowerUrl.contains(ext)) return true;
+      if (path.endsWith(ext)) return true;
     }
     return false;
   }

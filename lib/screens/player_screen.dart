@@ -4,6 +4,7 @@ import '../providers/audio_provider.dart';
 import '../providers/vk_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/cache_service.dart';
+import 'artist_search_screen.dart';
 import '../widgets/artwork_image.dart';
 
 class PlayerScreen extends StatelessWidget {
@@ -99,6 +100,12 @@ class PlayerScreen extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => _openArtistSearch(context, track.artist),
+                icon: const Icon(Icons.manage_search_rounded, size: 18),
+                label: const Text('Найти исполнителя'),
               ),
               const SizedBox(height: 32),
               StreamBuilder<Duration>(
@@ -264,5 +271,16 @@ class PlayerScreen extends StatelessWidget {
         ),
       );
     }
+  }
+
+  void _openArtistSearch(BuildContext context, String artist) {
+    final query = artist.trim();
+    if (query.isEmpty) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ArtistSearchScreen(artist: query),
+      ),
+    );
   }
 }

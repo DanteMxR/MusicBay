@@ -35,6 +35,7 @@ class VkProvider extends ChangeNotifier {
   List<Track> _searchResults = [];
   bool _searchLoading = false;
   String _searchQuery = '';
+  int _searchRequestId = 0;
 
   List<Track> get searchResults => _searchResults;
   bool get searchLoading => _searchLoading;
@@ -210,7 +211,9 @@ class VkProvider extends ChangeNotifier {
           ..addAll(_myTracks.map((t) => _trackKey(t.id, t.ownerId)));
       } else {
         _myTracks = _dedupeTracks([..._myTracks, ...tracks]);
-        _savedTrackKeys.addAll(_myTracks.map((t) => _trackKey(t.id, t.ownerId)));
+        _savedTrackKeys.addAll(
+          _myTracks.map((t) => _trackKey(t.id, t.ownerId)),
+        );
       }
     } catch (e) {
       _myTracksError = e.toString();
@@ -230,9 +233,42 @@ class VkProvider extends ChangeNotifier {
   }
 
   Future<void> searchAudio(String query) async {
+    final normalizedQuery = query.trim();
+    final requestId = ++_searchRequestId;
+
+    if (normalizedQuery.isEmpty) {
+      _searchResults = [];
+      _searchQuery = '';
+      _searchLoading = false;
+      notifyListeners();
+      return;
+    }
+
+    _searchQuery = normalizedQuery;
+    _searchLoading = true;
+    notifyListeners();
+
+    try {
+      final found = await _api.searchAudio(normalizedQuery);
+      if (requestId != _searchRequestId) return;
+      _searchResults = _dedupeTracks(found);
+    } catch (e) {
+      if (requestId != _searchRequestId) return;
+      _searchResults = [];
+    }
+
+    if (requestId != _searchRequestId) return;
+    _searchLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> searchArtistTracks(String artist) async {
+    final query = artist.trim();
+    final requestId = ++_searchRequestId;
     if (query.isEmpty) {
       _searchResults = [];
       _searchQuery = '';
+      _searchLoading = false;
       notifyListeners();
       return;
     }
@@ -242,17 +278,29 @@ class VkProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _searchResults = await _api.searchAudio(query);
-    } catch (e) {
+      final found = await _api.searchAudio(query, count: 150);
+      if (requestId != _searchRequestId) return;
+      final normalized = query.toLowerCase();
+      _searchResults = _dedupeTracks(
+        found.where((track) {
+          final trackArtist = track.artist.toLowerCase().trim();
+          return trackArtist.contains(normalized) ||
+              normalized.contains(trackArtist);
+        }),
+      );
+    } catch (_) {
+      if (requestId != _searchRequestId) return;
       _searchResults = [];
     }
 
+    if (requestId != _searchRequestId) return;
     _searchLoading = false;
     notifyListeners();
   }
 
   Future<void> loadMoreSearch() async {
     if (_searchLoading || _searchQuery.isEmpty) return;
+    final requestId = _searchRequestId;
     _searchLoading = true;
     notifyListeners();
 
@@ -261,9 +309,11 @@ class VkProvider extends ChangeNotifier {
         _searchQuery,
         offset: _searchResults.length,
       );
-      _searchResults.addAll(more);
+      if (requestId != _searchRequestId) return;
+      _searchResults = _dedupeTracks([..._searchResults, ...more]);
     } catch (_) {}
 
+    if (requestId != _searchRequestId) return;
     _searchLoading = false;
     notifyListeners();
   }
@@ -280,7 +330,7 @@ class VkProvider extends ChangeNotifier {
       if (refresh) {
         _recommendations = tracks;
       } else {
-        _recommendations.addAll(tracks);
+        _recommendations = [..._recommendations, ...tracks];
       }
     } catch (_) {}
 
@@ -442,7 +492,7 @@ class VkProvider extends ChangeNotifier {
         _newTracks = tracks;
         _newAlbums = albums;
       } else {
-        _newTracks.addAll(tracks);
+        _newTracks = [..._newTracks, ...tracks];
         _newAlbums = _dedupePlaylists([..._newAlbums, ...albums]);
       }
     } catch (_) {}
@@ -486,7 +536,10 @@ class VkProvider extends ChangeNotifier {
       try {
         await _api.addTrack(track.id, track.ownerId);
         _savedTrackKeys.add(_trackKey(track.id, track.ownerId));
-        if (_myTracks.indexWhere((t) => t.id == track.id) == -1) {
+        if (_myTracks.indexWhere(
+              (t) => t.id == track.id && t.ownerId == track.ownerId,
+            ) ==
+            -1) {
           _myTracks.insert(0, track);
         }
         added++;
@@ -547,18 +600,20 @@ class VkProvider extends ChangeNotifier {
     }
     if (byAlbum.isEmpty) return _newAlbums.isNotEmpty ? _newAlbums.first : null;
 
-    final albums = byAlbum.entries.map((entry) {
-      final first = entry.value.first;
-      return Playlist(
-        id: first.albumId!,
-        ownerId: first.albumOwnerId!,
-        title: first.albumTitle ?? first.title,
-        count: entry.value.length,
-        createTime: 0,
-        updateTime: 0,
-        photo: first.albumThumb,
-      );
-    }).toList(growable: false);
+    final albums = byAlbum.entries
+        .map((entry) {
+          final first = entry.value.first;
+          return Playlist(
+            id: first.albumId!,
+            ownerId: first.albumOwnerId!,
+            title: first.albumTitle ?? first.title,
+            count: entry.value.length,
+            createTime: 0,
+            updateTime: 0,
+            photo: first.albumThumb,
+          );
+        })
+        .toList(growable: false);
 
     final random = Random(seed);
     return albums[random.nextInt(albums.length)];

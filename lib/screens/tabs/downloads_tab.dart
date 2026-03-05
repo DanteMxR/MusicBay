@@ -96,7 +96,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
                     itemCount: _cachedTracks.length,
                     itemBuilder: (context, index) {
                       final track = _cachedTracks[index];
-                      final isPlaying = audio.currentTrack?.id == track.id;
+                      final isPlaying = audio.isPlayingTrack(track);
 
                       return TrackTile(
                         track: track,

@@ -10,27 +10,35 @@ class AudioProvider extends ChangeNotifier {
   final AudioPlayerService _audioService;
   final CacheService _cacheService;
   final VkProvider _vkProvider;
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
   bool _switchingPlaylist = false;
   bool _autoCachingTrack = false;
-  int? _lastAutoCacheTrackId;
+  String? _lastAutoCacheTrackKey;
   Duration? _lastObservedPosition;
   DateTime? _lastObservedAt;
   DateTime? _lastRecoveryAt;
   int? _lastRecoveredTrackId;
+  bool _disposed = false;
 
   AudioProvider(this._audioService, this._cacheService, this._vkProvider) {
-    _audioService.currentIndexStream.listen((_) {
-      notifyListeners();
-      _resetPlaybackWatchdog();
-      unawaited(_cacheCurrentTrackIfNeeded());
-    });
-    _audioService.playerStateStream.listen((_) {
-      notifyListeners();
-      unawaited(_cacheCurrentTrackIfNeeded());
-    });
-    positionStream.listen((position) {
-      unawaited(_detectAndRecoverPlaybackGlitch(position));
-    });
+    _subscriptions.add(
+      _audioService.currentIndexStream.listen((_) {
+        _safeNotifyListeners();
+        _resetPlaybackWatchdog();
+        unawaited(_cacheCurrentTrackIfNeeded());
+      }),
+    );
+    _subscriptions.add(
+      _audioService.playerStateStream.listen((_) {
+        _safeNotifyListeners();
+        unawaited(_cacheCurrentTrackIfNeeded());
+      }),
+    );
+    _subscriptions.add(
+      positionStream.listen((position) {
+        unawaited(_detectAndRecoverPlaybackGlitch(position));
+      }),
+    );
   }
 
   AudioPlayerService get audioService => _audioService;
@@ -48,7 +56,11 @@ class AudioProvider extends ChangeNotifier {
         current.ownerId == track.ownerId;
   }
 
-  Future<void> playPauseTrack(Track track, List<Track> playlist, {int startIndex = 0}) async {
+  Future<void> playPauseTrack(
+    Track track,
+    List<Track> playlist, {
+    int startIndex = 0,
+  }) async {
     if (track.url.trim().isEmpty) return;
 
     final isCurrentTrack = isPlayingTrack(track);
@@ -77,6 +89,7 @@ class AudioProvider extends ChangeNotifier {
       await playPlaylist(playable, startIndex: resolvedIndex);
     }
   }
+
   Stream<Duration> get positionStream => _audioService.positionStream;
   Stream<Duration?> get durationStream => _audioService.durationStream;
   Stream<PlayerState> get playerStateStream => _audioService.playerStateStream;
@@ -107,32 +120,11 @@ class AudioProvider extends ChangeNotifier {
 
     if (_switchingPlaylist) return;
     _switchingPlaylist = true;
-    // Replace URLs with cached paths where available
     try {
-      final resolvedTracks = playableTracks.map((track) {
-        final cachedPath = _cacheService.getCachedPath(
-          track.id,
-          ownerId: track.ownerId,
-        );
-        if (cachedPath != null) {
-          return Track(
-            id: track.id,
-            ownerId: track.ownerId,
-            artist: track.artist,
-            title: track.title,
-            duration: track.duration,
-            url: cachedPath,
-            albumThumb: track.albumThumb,
-            albumId: track.albumId,
-            albumOwnerId: track.albumOwnerId,
-            albumTitle: track.albumTitle,
-            isExplicit: track.isExplicit,
-          );
-        }
-        return track;
-      }).toList();
-
-      await _audioService.setPlaylist(resolvedTracks, startIndex: safeStartIndex);
+      await _audioService.setPlaylist(
+        playableTracks,
+        startIndex: safeStartIndex,
+      );
       await _audioService.play();
       await _cacheCurrentTrackIfNeeded();
       notifyListeners();
@@ -142,6 +134,7 @@ class AudioProvider extends ChangeNotifier {
       _switchingPlaylist = false;
     }
   }
+
   Future<void> playPause() async {
     await _audioService.playPause();
     notifyListeners();
@@ -179,17 +172,18 @@ class AudioProvider extends ChangeNotifier {
   Future<void> _cacheCurrentTrackIfNeeded() async {
     final track = currentTrack;
     if (track == null) return;
+    final trackKey = _trackKey(track);
     if (!isPlaying) return;
     if (!_vkProvider.isTrackSaved(track.id, ownerId: track.ownerId)) return;
     if (_cacheService.isTrackCached(track.id, ownerId: track.ownerId)) return;
-    if (_lastAutoCacheTrackId == track.id) return;
+    if (_lastAutoCacheTrackKey == trackKey) return;
     if (_autoCachingTrack) return;
 
     _autoCachingTrack = true;
     try {
       final path = await _cacheService.cacheTrack(track);
       if (path != null) {
-        _lastAutoCacheTrackId = track.id;
+        _lastAutoCacheTrackKey = trackKey;
       }
     } finally {
       _autoCachingTrack = false;
@@ -199,15 +193,26 @@ class AudioProvider extends ChangeNotifier {
   bool _isSamePlaylist(List<Track> tracks) {
     final current = _audioService.tracks;
     if (current.isEmpty) return false;
+    if (current.any((t) => _isLocalPath(t.url))) return false;
     final filtered = tracks.where((t) => t.url.isNotEmpty).toList();
     if (current.length != filtered.length) return false;
     for (var i = 0; i < current.length; i++) {
       if (current[i].id != filtered[i].id ||
-          current[i].ownerId != filtered[i].ownerId) {
+          current[i].ownerId != filtered[i].ownerId ||
+          current[i].url != filtered[i].url) {
         return false;
       }
     }
     return true;
+  }
+
+  bool _isLocalPath(String path) {
+    if (path.startsWith('/')) return true;
+    if (path.length >= 2 && path[1] == ':') {
+      final drive = path[0].toUpperCase().codeUnitAt(0);
+      return drive >= 65 && drive <= 90; // A-Z
+    }
+    return false;
   }
 
   void _resetPlaybackWatchdog() {
@@ -252,5 +257,21 @@ class AudioProvider extends ChangeNotifier {
     _lastRecoveryAt = now;
     await _audioService.recoverDecoderGlitch();
   }
-}
 
+  String _trackKey(Track track) => '${track.ownerId}_${track.id}';
+
+  void _safeNotifyListeners() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    for (final subscription in _subscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _subscriptions.clear();
+    super.dispose();
+  }
+}

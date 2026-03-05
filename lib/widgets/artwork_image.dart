@@ -28,9 +28,27 @@ class ArtworkImage extends StatefulWidget {
 
 class _ArtworkImageState extends State<ArtworkImage> {
   static final Dio _dio = Dio();
+  static const int _maxCacheSize = 500;
   static final Map<String, String?> _fallbackCache = {};
 
   bool _useFallback = false;
+  late Future<String?> _fallbackFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _fallbackFuture = _resolveFallbackArtwork(widget.track);
+  }
+
+  @override
+  void didUpdateWidget(covariant ArtworkImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_trackSignature(oldWidget.track) == _trackSignature(widget.track)) {
+      return;
+    }
+    _useFallback = false;
+    _fallbackFuture = _resolveFallbackArtwork(widget.track);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +67,9 @@ class _ArtworkImageState extends State<ArtworkImage> {
         placeholder: (_, _) => _placeholder(context),
         errorWidget: (_, _, _) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _useFallback = true);
+            if (mounted && !_useFallback) {
+              setState(() => _useFallback = true);
+            }
           });
           return _placeholder(context);
         },
@@ -57,7 +77,7 @@ class _ArtworkImageState extends State<ArtworkImage> {
     }
 
     return FutureBuilder<String?>(
-      future: _resolveFallbackArtwork(widget.track),
+      future: _fallbackFuture,
       builder: (context, snapshot) {
         final url = snapshot.data;
         if (_isValidHttp(url)) {
@@ -76,7 +96,13 @@ class _ArtworkImageState extends State<ArtworkImage> {
   }
 
   Widget _placeholder(BuildContext context) {
-    if (widget.placeholder != null) return widget.placeholder!;
+    if (widget.placeholder != null) {
+      return SizedBox(
+        width: widget.width,
+        height: widget.height,
+        child: widget.placeholder!,
+      );
+    }
     final theme = Theme.of(context);
     return Container(
       width: widget.width,
@@ -99,6 +125,15 @@ class _ArtworkImageState extends State<ArtworkImage> {
     final cacheKey = '${track.artist}|${track.title}'.toLowerCase();
     if (_fallbackCache.containsKey(cacheKey)) {
       return _fallbackCache[cacheKey];
+    }
+
+    if (_fallbackCache.length >= _maxCacheSize) {
+      final keysToRemove = _fallbackCache.keys
+          .take(_maxCacheSize ~/ 4)
+          .toList();
+      for (final key in keysToRemove) {
+        _fallbackCache.remove(key);
+      }
     }
 
     try {
@@ -129,5 +164,9 @@ class _ArtworkImageState extends State<ArtworkImage> {
       _fallbackCache[cacheKey] = null;
       return null;
     }
+  }
+
+  String _trackSignature(Track track) {
+    return '${track.ownerId}_${track.id}|${track.artist}|${track.title}|${track.albumThumb ?? ''}';
   }
 }

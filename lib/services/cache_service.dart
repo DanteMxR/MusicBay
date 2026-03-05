@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
@@ -99,7 +100,8 @@ class CacheService {
       });
 
       return filePath;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('CacheService: download failed for ${track.id}: $e');
       return null;
     }
   }

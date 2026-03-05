@@ -56,17 +56,23 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 autofocus: true,
                 textInputAction: TextInputAction.search,
                 decoration: const InputDecoration(
-                  hintText: '\u041f\u043e\u0438\u0441\u043a \u0432 \u043c\u043e\u0435\u0439 \u043c\u0443\u0437\u044b\u043a\u0435',
+                  hintText:
+                      '\u041f\u043e\u0438\u0441\u043a \u0432 \u043c\u043e\u0435\u0439 \u043c\u0443\u0437\u044b\u043a\u0435',
                   border: InputBorder.none,
                 ),
                 onChanged: (value) {
                   final normalized = value.trim().toLowerCase();
                   setState(() => _searchQuery = normalized);
                   _searchDebounce?.cancel();
-                  _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-                    if (!mounted || normalized.isEmpty) return;
-                    context.read<VkProvider>().ensureMyTracksLoadedForSearch();
-                  });
+                  _searchDebounce = Timer(
+                    const Duration(milliseconds: 300),
+                    () {
+                      if (!mounted || normalized.isEmpty) return;
+                      context
+                          .read<VkProvider>()
+                          .ensureMyTracksLoadedForSearch();
+                    },
+                  );
                 },
               )
             : const Text('Моя музыка'),
@@ -177,7 +183,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
         return false;
       },
       child: ListView.builder(
-        itemCount: visibleTracks.length + (vk.myTracksLoading ? 1 : 0),
+        itemCount: visibleTracks.length + 1 + (vk.myTracksLoading ? 1 : 0),
         itemBuilder: (context, index) {
           if (index == 0) {
             return Padding(
@@ -245,8 +251,11 @@ class _MyMusicTabState extends State<MyMusicTab> {
                     ],
                   )
                 : null,
-            onTap: () =>
-                audio.playPauseTrack(track, visibleTracks, startIndex: dataIndex),
+            onTap: () => audio.playPauseTrack(
+              track,
+              visibleTracks,
+              startIndex: dataIndex,
+            ),
             onLongPress: () => _showTrackMenu(context, track, vk),
           );
         },
@@ -278,10 +287,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 title: const Text('Удалить скачанный трек (кэш)'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await cache.removeFromCache(
-                    track.id,
-                    ownerId: track.ownerId,
-                  );
+                  await cache.removeFromCache(track.id, ownerId: track.ownerId);
                   if (!context.mounted) return;
                   setState(() {});
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -312,9 +318,9 @@ class _MyMusicTabState extends State<MyMusicTab> {
               await context.read<CacheService>().clearCache();
               if (!context.mounted) return;
               setState(() {});
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Кэш очищен')),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('Кэш очищен')));
             },
             child: const Text('Очистить'),
           ),
@@ -346,5 +352,3 @@ class _MyMusicTabState extends State<MyMusicTab> {
     );
   }
 }
-
-

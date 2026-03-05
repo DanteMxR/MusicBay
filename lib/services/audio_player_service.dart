@@ -79,7 +79,10 @@ class AudioPlayerService {
   Future<void> recoverDecoderGlitch() async =>
       _safeHandler.recoverDecoderGlitch();
 
-  Future<void> dispose() async => _safeHandler.stop();
+  Future<void> dispose() async {
+    await _safeHandler.stop();
+    await _player.dispose();
+  }
 }
 
 enum RepeatMode { off, all, one }
@@ -136,8 +139,7 @@ class MusicAudioHandler extends BaseAudioHandler
     _currentIndex = 0;
     if (selectedTrack != null && selectedTrack.url.isNotEmpty) {
       final idx = _tracks.indexWhere(
-        (t) =>
-            t.id == selectedTrack.id && t.ownerId == selectedTrack.ownerId,
+        (t) => t.id == selectedTrack.id && t.ownerId == selectedTrack.ownerId,
       );
       if (idx >= 0) _currentIndex = idx;
     }
@@ -176,11 +178,11 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> playTrackAt(int index) async {
     if (index >= 0 && index < _tracks.length) {
       _currentIndex = index;
-      await _player.stop();
-      await _player.setAudioSources(
-        _playlistSources,
-        initialIndex: index,
-      );
+      try {
+        await _player.seek(Duration.zero, index: index);
+      } catch (_) {
+        await _player.setAudioSources(_playlistSources, initialIndex: index);
+      }
       await _player.play();
       mediaItem.add(_trackToMediaItem(_tracks[index]));
       _broadcastState();
@@ -208,6 +210,9 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> toggleShuffle() async {
     _shuffle = !_shuffle;
     await _player.setShuffleModeEnabled(_shuffle);
+    if (_shuffle) {
+      await _player.shuffle();
+    }
     _broadcastState();
   }
 
@@ -367,8 +372,11 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   bool _isLocalPath(String path) {
-    return path.startsWith('/') ||
-        path.startsWith('C:') ||
-        path.startsWith('D:');
+    if (path.startsWith('/')) return true;
+    if (path.length >= 2 && path[1] == ':') {
+      final drive = path[0].toUpperCase().codeUnitAt(0);
+      return drive >= 65 && drive <= 90; // A-Z
+    }
+    return false;
   }
 }

@@ -30,11 +30,15 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => VkProvider(vkApi)),
-        Provider.value(value: cacheService),
+        Provider<CacheService>.value(value: cacheService),
+        Provider<AudioPlayerService>(
+          create: (_) => audioService,
+          dispose: (_, service) => service.dispose(),
+        ),
         ChangeNotifierProvider(
           create: (context) => AudioProvider(
-            audioService,
-            cacheService,
+            context.read<AudioPlayerService>(),
+            context.read<CacheService>(),
             context.read<VkProvider>(),
           ),
         ),

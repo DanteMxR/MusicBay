@@ -200,39 +200,35 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                 ),
               ),
               if (_selectedArtist != null)
-                ...artistTracks.take(8).map((track) {
-                  final index = artistTracks.indexOf(track);
-                  return TrackTile(
-                    track: track,
+                for (var i = 0; i < artistTracks.length && i < 8; i++)
+                  TrackTile(
+                    track: artistTracks[i],
                     isPlaying:
-                        audio.currentTrack?.id == track.id &&
-                        audio.currentTrack?.ownerId == track.ownerId,
-                    trailing: _buildAddToLibraryButton(context, track),
+                        audio.currentTrack?.id == artistTracks[i].id &&
+                        audio.currentTrack?.ownerId == artistTracks[i].ownerId,
+                    trailing: _buildAddToLibraryButton(context, artistTracks[i]),
                     onTap: () => audio.playPauseTrack(
-                      track,
+                      artistTracks[i],
                       artistTracks,
-                      startIndex: index,
+                      startIndex: i,
                     ),
-                  );
-                }),
+                  ),
             ],
             if (forToday.isNotEmpty) ...[
               const _SectionTitle(
                 title: 'Для тебя сегодня',
                 subtitle: 'Полный список микса дня',
               ),
-              ...forToday.map((track) {
-                final index = forToday.indexOf(track);
-                return TrackTile(
-                  track: track,
+              for (var i = 0; i < forToday.length; i++)
+                TrackTile(
+                  track: forToday[i],
                   isPlaying:
-                      audio.currentTrack?.id == track.id &&
-                      audio.currentTrack?.ownerId == track.ownerId,
-                  trailing: _buildAddToLibraryButton(context, track),
+                      audio.currentTrack?.id == forToday[i].id &&
+                      audio.currentTrack?.ownerId == forToday[i].ownerId,
+                  trailing: _buildAddToLibraryButton(context, forToday[i]),
                   onTap: () =>
-                      audio.playPauseTrack(track, forToday, startIndex: index),
-                );
-              }),
+                      audio.playPauseTrack(forToday[i], forToday, startIndex: i),
+                ),
             ],
             if (vk.discoveryLoading && dailyMix.isEmpty)
               const Padding(
