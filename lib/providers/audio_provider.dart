@@ -11,7 +11,6 @@ class AudioProvider extends ChangeNotifier {
   final CacheService _cacheService;
   final VkProvider _vkProvider;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
-  bool _switchingPlaylist = false;
   bool _autoCachingTrack = false;
   String? _lastAutoCacheTrackKey;
   Duration? _lastObservedPosition;
@@ -74,18 +73,31 @@ class AudioProvider extends ChangeNotifier {
       if (playable.isEmpty) return;
 
       var resolvedIndex = playable.indexWhere(
-        (t) => t.id == track.id && t.ownerId == track.ownerId,
+        (t) =>
+            t.id == track.id &&
+            t.ownerId == track.ownerId &&
+            t.url == track.url,
       );
 
-      if (resolvedIndex < 0 && playlist.isNotEmpty) {
-        final clamped = startIndex.clamp(0, playlist.length - 1);
-        final candidate = playlist[clamped];
+      if (resolvedIndex < 0) {
         resolvedIndex = playable.indexWhere(
-          (t) => t.id == candidate.id && t.ownerId == candidate.ownerId,
+          (t) => t.id == track.id && t.ownerId == track.ownerId,
         );
       }
 
-      if (resolvedIndex < 0) resolvedIndex = 0;
+      if (resolvedIndex < 0) {
+        resolvedIndex = _mapOriginalIndexToPlayableIndex(
+          playlist: playlist,
+          originalIndex: startIndex,
+        );
+      }
+
+      if (resolvedIndex < 0) {
+        debugPrint(
+          'playPauseTrack: unable to resolve index for ${track.ownerId}_${track.id}',
+        );
+        return;
+      }
       await playPlaylist(playable, startIndex: resolvedIndex);
     }
   }
@@ -101,26 +113,19 @@ class AudioProvider extends ChangeNotifier {
     if (playableTracks.isEmpty) return;
 
     final safeStartIndex = startIndex.clamp(0, playableTracks.length - 1);
-
-    // If the same playlist is already loaded, just switch track
-    if (_isSamePlaylist(playableTracks) && !_switchingPlaylist) {
-      var resolvedIndex = safeStartIndex;
-
-      // Avoid restarting the same track when it is already selected.
-      if (resolvedIndex == _audioService.currentIndex) {
-        if (!_audioService.isPlaying) {
-          await _audioService.play();
-        }
-      } else {
-        await _audioService.playTrackAt(resolvedIndex);
-      }
-      notifyListeners();
-      return;
-    }
-
-    if (_switchingPlaylist) return;
-    _switchingPlaylist = true;
     try {
+      if (_isSamePlaylist(playableTracks)) {
+        if (safeStartIndex == _audioService.currentIndex) {
+          if (!_audioService.isPlaying) {
+            await _audioService.play();
+          }
+        } else {
+          await _audioService.playTrackAt(safeStartIndex);
+        }
+        notifyListeners();
+        return;
+      }
+
       await _audioService.setPlaylist(
         playableTracks,
         startIndex: safeStartIndex,
@@ -130,9 +135,49 @@ class AudioProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('playPlaylist error: $e');
-    } finally {
-      _switchingPlaylist = false;
     }
+  }
+
+  int _mapOriginalIndexToPlayableIndex({
+    required List<Track> playlist,
+    required int originalIndex,
+  }) {
+    if (playlist.isEmpty) return -1;
+    final safeOriginalIndex = originalIndex.clamp(0, playlist.length - 1);
+    if (playlist[safeOriginalIndex].url.trim().isEmpty) return -1;
+
+    var playableIndex = 0;
+    for (var i = 0; i < playlist.length; i++) {
+      final hasUrl = playlist[i].url.trim().isNotEmpty;
+      if (!hasUrl) continue;
+      if (i == safeOriginalIndex) return playableIndex;
+      playableIndex++;
+    }
+    return -1;
+  }
+
+  bool _isSamePlaylist(List<Track> tracks) {
+    final current = _audioService.tracks;
+    if (current.isEmpty) return false;
+    if (current.any((t) => _isLocalPath(t.url))) return false;
+    if (current.length != tracks.length) return false;
+    for (var i = 0; i < current.length; i++) {
+      if (current[i].id != tracks[i].id ||
+          current[i].ownerId != tracks[i].ownerId ||
+          current[i].url != tracks[i].url) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _isLocalPath(String path) {
+    if (path.startsWith('/')) return true;
+    if (path.length >= 2 && path[1] == ':') {
+      final drive = path[0].toUpperCase().codeUnitAt(0);
+      return drive >= 65 && drive <= 90; // A-Z
+    }
+    return false;
   }
 
   Future<void> playPause() async {
@@ -188,31 +233,6 @@ class AudioProvider extends ChangeNotifier {
     } finally {
       _autoCachingTrack = false;
     }
-  }
-
-  bool _isSamePlaylist(List<Track> tracks) {
-    final current = _audioService.tracks;
-    if (current.isEmpty) return false;
-    if (current.any((t) => _isLocalPath(t.url))) return false;
-    final filtered = tracks.where((t) => t.url.isNotEmpty).toList();
-    if (current.length != filtered.length) return false;
-    for (var i = 0; i < current.length; i++) {
-      if (current[i].id != filtered[i].id ||
-          current[i].ownerId != filtered[i].ownerId ||
-          current[i].url != filtered[i].url) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool _isLocalPath(String path) {
-    if (path.startsWith('/')) return true;
-    if (path.length >= 2 && path[1] == ':') {
-      final drive = path[0].toUpperCase().codeUnitAt(0);
-      return drive >= 65 && drive <= 90; // A-Z
-    }
-    return false;
   }
 
   void _resetPlaybackWatchdog() {

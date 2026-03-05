@@ -157,7 +157,7 @@ class MusicAudioHandler extends BaseAudioHandler
     }).toList();
 
     if (_player.playing) {
-      await _player.stop();
+      await _player.pause();
     }
     if (_player.speed != 1.0) {
       await _player.setSpeed(1.0);
