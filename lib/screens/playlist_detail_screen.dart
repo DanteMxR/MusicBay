@@ -48,8 +48,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final audio = context.watch<AudioProvider>();
+    final cache = context.read<CacheService>();
     final playableTracks = _tracks
-        .where((track) => track.url.isNotEmpty)
+        .where((track) => track.url.isNotEmpty || cache.isTrackCached(track.id, ownerId: track.ownerId))
         .toList(growable: false);
 
     return Scaffold(
@@ -82,11 +83,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     audio.currentTrack?.id == track.id &&
                     audio.currentTrack?.ownerId == track.ownerId;
 
+                final trackCached = cache.isTrackCached(track.id, ownerId: track.ownerId);
                 return TrackTile(
                   track: track,
                   isPlaying: isPlaying,
+                  isCached: trackCached,
                   onTap: () {
-                    if (track.url.isEmpty) {
+                    if (track.url.isEmpty && !trackCached) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('Трек недоступен для воспроизведения'),

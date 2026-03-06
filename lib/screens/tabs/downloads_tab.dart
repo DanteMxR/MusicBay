@@ -101,6 +101,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
                       return TrackTile(
                         track: track,
                         isPlaying: isPlaying,
+                        isCached: true,
                         onTap: () {
                           audio.playPauseTrack(track, _cachedTracks, startIndex: index);
                         },

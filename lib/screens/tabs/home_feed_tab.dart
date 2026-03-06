@@ -6,6 +6,7 @@ import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/vk_provider.dart';
 import '../../screens/generated_album_screen.dart';
+import '../../services/cache_service.dart';
 import '../../widgets/artwork_image.dart';
 import '../../widgets/track_tile.dart';
 
@@ -24,19 +25,19 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
   Widget build(BuildContext context) {
     final vk = context.watch<VkProvider>();
     final audio = context.watch<AudioProvider>();
+    final cache = context.read<CacheService>();
     final theme = Theme.of(context);
 
     final dailyMix =
         _uniqueTracks(vk.dailyMix.isNotEmpty ? vk.dailyMix : vk.recommendations);
     final freshTracks = _uniqueTracks(vk.newTracks);
     final allForArtists = _uniqueTracks([...dailyMix, ...freshTracks]);
-    final forToday = dailyMix.isNotEmpty
-        ? dailyMix
-        : _uniqueTracks([
-            ...vk.recommendations,
-            ...freshTracks,
-            ...vk.myTracks,
-          ]).take(30).toList(growable: false);
+    final forToday = _uniqueTracks([
+      ...dailyMix,
+      ...vk.recommendations,
+      ...freshTracks,
+      ...vk.myTracks,
+    ]).take(50).toList(growable: false);
 
     final generatedAlbums = _buildGeneratedAlbums(
       [...vk.myTracks, ...vk.recommendations],
@@ -60,11 +61,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            _buildHero(
-              theme,
-              dailyMix.length,
-              artists.isNotEmpty ? artists.first : null,
-            ),
+            _buildHero(theme, forToday.length),
             if (generatedAlbums.isNotEmpty) ...[
               const _SectionTitle(
                 title: 'Альбомы дня',
@@ -206,6 +203,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                     isPlaying:
                         audio.currentTrack?.id == artistTracks[i].id &&
                         audio.currentTrack?.ownerId == artistTracks[i].ownerId,
+                    isCached: cache.isTrackCached(artistTracks[i].id, ownerId: artistTracks[i].ownerId),
                     trailing: _buildAddToLibraryButton(context, artistTracks[i]),
                     onTap: () => audio.playPauseTrack(
                       artistTracks[i],
@@ -225,6 +223,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                   isPlaying:
                       audio.currentTrack?.id == forToday[i].id &&
                       audio.currentTrack?.ownerId == forToday[i].ownerId,
+                  isCached: cache.isTrackCached(forToday[i].id, ownerId: forToday[i].ownerId),
                   trailing: _buildAddToLibraryButton(context, forToday[i]),
                   onTap: () =>
                       audio.playPauseTrack(forToday[i], forToday, startIndex: i),
@@ -277,14 +276,14 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
     final artistEntries = byArtist.entries.toList()
       ..sort((a, b) => b.value.length.compareTo(a.value.length));
 
-    for (final entry in artistEntries.take(3)) {
-      if (entry.value.length < 5) continue;
+    for (final entry in artistEntries) {
+      if (entry.value.length < 3) continue;
       final list = List<Track>.from(entry.value)..shuffle(Random(seed ^ entry.key.hashCode));
       result.add(
         _GeneratedAlbum(
           title: 'Подборка: ${entry.key}',
           subtitle: 'Собрано по исполнителю',
-          tracks: list.take(22).toList(growable: false),
+          tracks: list.toList(growable: false),
         ),
       );
     }
@@ -292,7 +291,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
     return result;
   }
 
-  Widget _buildHero(ThemeData theme, int mixCount, String? topArtist) {
+  Widget _buildHero(ThemeData theme, int mixCount) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 6),
       padding: const EdgeInsets.all(16),
@@ -324,20 +323,9 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              Chip(
-                avatar: const Icon(Icons.auto_awesome, size: 16),
-                label: Text('Микс: $mixCount'),
-              ),
-              if (topArtist != null)
-                Chip(
-                  avatar: const Icon(Icons.person_outline, size: 16),
-                  label: Text(topArtist),
-                ),
-            ],
+          Chip(
+            avatar: const Icon(Icons.auto_awesome, size: 16),
+            label: Text('Микс: $mixCount'),
           ),
         ],
       ),

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../providers/audio_provider.dart';
 import '../providers/vk_provider.dart';
+import '../services/cache_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/track_tile.dart';
 
@@ -21,6 +22,7 @@ class GeneratedAlbumScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final audio = context.watch<AudioProvider>();
+    final cache = context.read<CacheService>();
 
     return Scaffold(
       appBar: AppBar(title: Text(title)),
@@ -61,6 +63,7 @@ class GeneratedAlbumScreen extends StatelessWidget {
                 return TrackTile(
                   track: track,
                   isPlaying: isPlaying,
+                  isCached: cache.isTrackCached(track.id, ownerId: track.ownerId),
                   trailing: _buildAddToLibraryButton(context, track),
                   onTap: () =>
                       audio.playPauseTrack(track, tracks, startIndex: index - 1),

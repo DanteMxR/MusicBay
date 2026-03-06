@@ -232,6 +232,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
           return TrackTile(
             track: track,
             isPlaying: isPlaying,
+            isCached: isCached,
             trailing: isCached
                 ? Row(
                     mainAxisSize: MainAxisSize.min,

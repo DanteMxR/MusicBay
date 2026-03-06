@@ -8,6 +8,7 @@ class TrackTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
   final Widget? trailing;
+  final bool isCached;
 
   const TrackTile({
     super.key,
@@ -16,12 +17,13 @@ class TrackTile extends StatelessWidget {
     required this.onTap,
     this.onLongPress,
     this.trailing,
+    this.isCached = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isUnavailable = track.url.trim().isEmpty;
+    final isUnavailable = track.url.trim().isEmpty && !isCached;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),

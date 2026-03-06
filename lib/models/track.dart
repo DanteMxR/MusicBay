@@ -191,6 +191,20 @@ class Track {
     return false;
   }
 
+  Track copyWithUrl(String newUrl) => Track(
+    id: id,
+    ownerId: ownerId,
+    artist: artist,
+    title: title,
+    duration: duration,
+    url: newUrl,
+    albumThumb: albumThumb,
+    albumId: albumId,
+    albumOwnerId: albumOwnerId,
+    albumTitle: albumTitle,
+    isExplicit: isExplicit,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'owner_id': ownerId,

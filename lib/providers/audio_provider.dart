@@ -53,26 +53,39 @@ class AudioProvider extends ChangeNotifier {
     return current != null && _isSameTrack(current, track);
   }
 
+  Track _resolveTrackWithCache(Track track) {
+    if (track.url.trim().isNotEmpty) return track;
+    final cachedPath = _cacheService.getCachedPath(track.id, ownerId: track.ownerId);
+    if (cachedPath != null) return track.copyWithUrl(cachedPath);
+    return track;
+  }
+
+  List<Track> _resolveTracksWithCache(List<Track> tracks) {
+    return tracks.map(_resolveTrackWithCache).toList(growable: false);
+  }
+
   Future<void> playPauseTrack(
     Track track,
     List<Track> playlist, {
     int startIndex = 0,
   }) async {
-    if (track.url.trim().isEmpty) return;
+    final resolvedTrack = _resolveTrackWithCache(track);
+    if (resolvedTrack.url.trim().isEmpty) return;
 
-    final isCurrentTrack = isPlayingTrack(track);
+    final isCurrentTrack = isPlayingTrack(resolvedTrack);
 
     if (isCurrentTrack) {
       await playPause();
     } else {
-      final playable = playlist
+      final resolvedPlaylist = _resolveTracksWithCache(playlist);
+      final playable = resolvedPlaylist
           .where((t) => t.url.trim().isNotEmpty)
           .toList(growable: false);
       if (playable.isEmpty) return;
 
       var resolvedIndex = _resolvePlayableIndex(
-        track: track,
-        playlist: playlist,
+        track: resolvedTrack,
+        playlist: resolvedPlaylist,
         playable: playable,
         startIndex: startIndex,
       );
@@ -92,7 +105,8 @@ class AudioProvider extends ChangeNotifier {
   Stream<PlayerState> get playerStateStream => _audioService.playerStateStream;
 
   Future<void> playPlaylist(List<Track> tracks, {int startIndex = 0}) async {
-    final playableTracks = tracks
+    final resolved = _resolveTracksWithCache(tracks);
+    final playableTracks = resolved
         .where((t) => t.url.trim().isNotEmpty)
         .toList(growable: false);
     if (playableTracks.isEmpty) return;
