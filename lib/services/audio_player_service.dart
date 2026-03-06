@@ -134,13 +134,14 @@ class MusicAudioHandler extends BaseAudioHandler
     _tracks = tracks.where((t) => t.url.isNotEmpty).toList(growable: false);
     if (_tracks.isEmpty) return;
 
-    _currentIndex = _mapOriginalIndexToPlayableIndex(
+    var targetIndex = _mapOriginalIndexToPlayableIndex(
       tracks,
       safeOriginalIndex,
     );
-    if (_currentIndex < 0 || _currentIndex >= _tracks.length) {
-      _currentIndex = 0;
+    if (targetIndex < 0 || targetIndex >= _tracks.length) {
+      targetIndex = 0;
     }
+    _currentIndex = targetIndex;
 
     final mediaItems = _tracks.map(_trackToMediaItem).toList();
     queue.add(mediaItems);
@@ -160,16 +161,21 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_player.speed != 1.0) {
       await _player.setSpeed(1.0);
     }
+    // Use targetIndex (local variable) instead of _currentIndex here,
+    // because _player.pause() above can trigger currentIndexStream listener
+    // which overwrites _currentIndex with the OLD playlist's index.
+    _currentIndex = targetIndex;
     await _player.setAudioSources(
       _playlistSources,
-      initialIndex: _currentIndex,
+      initialIndex: targetIndex,
     );
     await _player.setLoopMode(_mapLoopMode(_repeatMode));
     await _player.setShuffleModeEnabled(_shuffle);
     if (_shuffle) {
       await _player.shuffle();
     }
-    mediaItem.add(mediaItems[_currentIndex]);
+    _currentIndex = targetIndex;
+    mediaItem.add(mediaItems[targetIndex]);
     _broadcastState();
   }
 
