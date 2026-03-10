@@ -58,7 +58,7 @@ class TrackTile extends StatelessWidget {
               ? theme.colorScheme.onSurfaceVariant
               : isPlaying
               ? theme.colorScheme.primary
-              : Colors.white,
+              : theme.colorScheme.onSurface,
           fontWeight: isPlaying ? FontWeight.w600 : null,
         ),
       ),

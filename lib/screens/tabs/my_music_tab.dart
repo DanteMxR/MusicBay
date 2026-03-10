@@ -35,6 +35,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
     if (_filter != _MyMusicFilter.all) return;
     if (_searchQuery.isNotEmpty) return;
     if (vk.myTracksLoading || !vk.myTracksHasMore) return;
+    if (vk.myTracksError != null) return;
 
     // Trigger earlier than the physical end to keep long lists responsive.
     final shouldLoad = metrics == null || metrics.extentAfter < 1400;
@@ -111,6 +112,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
         _searchQuery.isEmpty &&
         !vk.myTracksLoading &&
         vk.myTracksHasMore &&
+        vk.myTracksError == null &&
         vk.myTracks.length < 120) {
       _prefetchScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -124,30 +126,44 @@ class _MyMusicTabState extends State<MyMusicTab> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (vk.myTracksError != null && vk.myTracks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Ошибка: ${vk.myTracksError}'),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () => vk.loadMyTracks(refresh: true),
-              child: const Text('Повторить'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (vk.myTracks.isEmpty) {
-      return const Center(child: Text('Нет треков'));
-    }
-
     final cache = context.read<CacheService>();
-    final theme = Theme.of(context);
+    final bool isOffline = vk.myTracksError != null && vk.myTracks.isEmpty;
+    final List<Track> allTracks;
 
-    final allTracks = vk.myTracks;
+    if (isOffline) {
+      final cachedTracks = cache.getCachedTracks();
+      if (cachedTracks.isEmpty) {
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 48),
+              const SizedBox(height: 16),
+              const Text('Нет доступа к сети'),
+              const SizedBox(height: 8),
+              Text(
+                'Скачанных треков нет',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => vk.loadMyTracks(refresh: true),
+                child: const Text('Повторить'),
+              ),
+            ],
+          ),
+        );
+      }
+      allTracks = cachedTracks;
+    } else if (vk.myTracks.isEmpty) {
+      return const Center(child: Text('Нет треков'));
+    } else {
+      allTracks = vk.myTracks;
+    }
+
+    final theme = Theme.of(context);
     final cachedKeys = <String>{};
     for (final track in allTracks) {
       if (cache.isTrackCached(track.id, ownerId: track.ownerId)) {
@@ -188,27 +204,56 @@ class _MyMusicTabState extends State<MyMusicTab> {
           if (index == 0) {
             return Padding(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-              child: Wrap(
-                spacing: 8,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ChoiceChip(
-                    label: const Text('Все'),
-                    selected: _filter == _MyMusicFilter.all,
-                    onSelected: (_) =>
-                        setState(() => _filter = _MyMusicFilter.all),
-                  ),
-                  ChoiceChip(
-                    label: const Text('Скачанные'),
-                    selected: _filter == _MyMusicFilter.downloaded,
-                    onSelected: (_) =>
-                        setState(() => _filter = _MyMusicFilter.downloaded),
-                  ),
-                  if (cachedKeys.isNotEmpty)
-                    ActionChip(
-                      avatar: const Icon(Icons.delete_sweep_outlined, size: 18),
-                      label: const Text('Очистить кэш'),
-                      onPressed: () => _showClearCacheDialog(context),
+                  if (isOffline)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.cloud_off, size: 16,
+                              color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Нет сети. Показаны скачанные треки',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => vk.loadMyTracks(refresh: true),
+                            child: const Text('Повторить'),
+                          ),
+                        ],
+                      ),
                     ),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Все'),
+                        selected: _filter == _MyMusicFilter.all,
+                        onSelected: (_) =>
+                            setState(() => _filter = _MyMusicFilter.all),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Скачанные'),
+                        selected: _filter == _MyMusicFilter.downloaded,
+                        onSelected: (_) =>
+                            setState(() => _filter = _MyMusicFilter.downloaded),
+                      ),
+                      if (cachedKeys.isNotEmpty)
+                        ActionChip(
+                          avatar:
+                              const Icon(Icons.delete_sweep_outlined, size: 18),
+                          label: const Text('Очистить кэш'),
+                          onPressed: () => _showClearCacheDialog(context),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             );

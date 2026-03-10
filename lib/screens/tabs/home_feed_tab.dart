@@ -9,6 +9,7 @@ import '../../screens/generated_album_screen.dart';
 import '../../services/cache_service.dart';
 import '../../widgets/artwork_image.dart';
 import '../../widgets/track_tile.dart';
+import '../../widgets/theme_mode_menu.dart';
 
 class HomeFeedTab extends StatefulWidget {
   const HomeFeedTab({super.key});
@@ -54,7 +55,10 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
         : const <Track>[];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Главная')),
+      appBar: AppBar(
+        title: const Text('Главная'),
+        actions: const [ThemeModeMenuButton()],
+      ),
       body: RefreshIndicator(
         onRefresh: () => vk.loadDiscovery(refresh: true),
         child: ListView(
@@ -466,5 +470,4 @@ class _MixTrackCard extends StatelessWidget {
     );
   }
 }
-
 

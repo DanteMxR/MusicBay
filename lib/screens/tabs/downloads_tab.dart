@@ -73,21 +73,27 @@ class _DownloadsTabState extends State<DownloadsTab> {
             ),
           Expanded(
             child: _cachedTracks.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           Icons.download_outlined,
                           size: 64,
-                          color: Colors.grey,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.6,
+                          ),
                         ),
                         SizedBox(height: 16),
                         Text('Нет загруженных треков'),
                         SizedBox(height: 8),
                         Text(
                           'Зажмите трек и выберите "Скачать"',
-                          style: TextStyle(color: Colors.grey),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.8,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -106,10 +112,10 @@ class _DownloadsTabState extends State<DownloadsTab> {
                           audio.playPauseTrack(track, _cachedTracks, startIndex: index);
                         },
                         onLongPress: () => _showDeleteDialog(track),
-                        trailing: const Icon(
+                        trailing: Icon(
                           Icons.download_done,
                           size: 20,
-                          color: Color(0xFFFF8A1A),
+                          color: theme.colorScheme.primary,
                         ),
                       );
                     },

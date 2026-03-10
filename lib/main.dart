@@ -9,6 +9,7 @@ import 'services/audio_player_service.dart';
 import 'services/cache_service.dart';
 import 'providers/vk_provider.dart';
 import 'providers/audio_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 
@@ -19,6 +20,8 @@ Future<void> main() async {
 
   final vkApi = VkApiService();
   await vkApi.init();
+
+  final settingsBox = await Hive.openBox('settings');
 
   final cacheService = CacheService();
   await cacheService.init();
@@ -42,6 +45,7 @@ Future<void> main() async {
             context.read<VkProvider>(),
           ),
         ),
+        ChangeNotifierProvider(create: (_) => ThemeProvider(settingsBox)),
       ],
       child: const MusicBayApp(),
     ),
@@ -57,9 +61,14 @@ class MusicBayApp extends StatefulWidget {
 
 class _MusicBayAppState extends State<MusicBayApp> {
   static const _orangeAccent = Color(0xFFFF8A1A);
-  static const _background = Color(0xFF0D0D0D);
-  static const _surface = Color(0xFF171717);
-  static const _surfaceHigh = Color(0xFF202020);
+  static const _darkBackground = Color(0xFF0D0D0D);
+  static const _darkSurface = Color(0xFF17191C);
+  static const _darkSurfaceHigh = Color(0xFF202329);
+  static const _darkSurfaceHighest = Color(0xFF2B2F36);
+  static const _lightBackground = Color(0xFFF7F4EF);
+  static const _lightSurface = Color(0xFFFFFFFF);
+  static const _lightSurfaceHigh = Color(0xFFF1ECE4);
+  static const _lightSurfaceHighest = Color(0xFFE6E0D6);
 
   @override
   void initState() {
@@ -76,88 +85,137 @@ class _MusicBayAppState extends State<MusicBayApp> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  ThemeData _buildTheme(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final background = isDark ? _darkBackground : _lightBackground;
+    final surface = isDark ? _darkSurface : _lightSurface;
+    final surfaceHigh = isDark ? _darkSurfaceHigh : _lightSurfaceHigh;
+    final surfaceHighest =
+        isDark ? _darkSurfaceHighest : _lightSurfaceHighest;
+
     final colorScheme =
         ColorScheme.fromSeed(
           seedColor: _orangeAccent,
-          brightness: Brightness.dark,
-          surface: _surface,
+          brightness: brightness,
+          surface: surface,
         ).copyWith(
           primary: _orangeAccent,
           secondary: const Color(0xFFFFB15F),
-          surface: _surface,
-          surfaceContainer: _surface,
-          surfaceContainerHigh: _surfaceHigh,
-          surfaceContainerHighest: const Color(0xFF2A2A2A),
+          surface: surface,
+          surfaceContainer: surface,
+          surfaceContainerHigh: surfaceHigh,
+          surfaceContainerHighest: surfaceHighest,
           onPrimary: Colors.black,
         );
+
+    return ThemeData(
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: background,
+      canvasColor: surface,
+      useMaterial3: true,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+      ),
+      cardTheme: CardThemeData(
+        color: surfaceHigh,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: surface,
+        indicatorColor: _orangeAccent.withValues(alpha: 0.18),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final isSelected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          );
+        }),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: surfaceHigh,
+        selectedColor: _orangeAccent.withValues(alpha: 0.16),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+        labelStyle: TextStyle(color: colorScheme.onSurface),
+        secondaryLabelStyle: TextStyle(color: colorScheme.onSurface),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: colorScheme.onSurfaceVariant,
+        textColor: colorScheme.onSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: _orangeAccent,
+          foregroundColor: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: surfaceHigh,
+        contentTextStyle: TextStyle(color: colorScheme.onSurface),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+      sliderTheme: SliderThemeData(
+        activeTrackColor: _orangeAccent,
+        inactiveTrackColor: colorScheme.onSurface.withValues(
+          alpha: isDark ? 0.14 : 0.2,
+        ),
+        thumbColor: _orangeAccent,
+        overlayColor: _orangeAccent.withValues(alpha: 0.18),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: surfaceHigh,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _orangeAccent, width: 1.2),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lightTheme = _buildTheme(Brightness.light);
+    final darkTheme = _buildTheme(Brightness.dark);
+    final themeMode = context.watch<ThemeProvider>().mode;
 
     return MaterialApp(
       title: 'MusicBay',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: colorScheme,
-        scaffoldBackgroundColor: _background,
-        canvasColor: _surface,
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          centerTitle: false,
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: _surface,
-          indicatorColor: _orangeAccent.withValues(alpha: 0.18),
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            final isSelected = states.contains(WidgetState.selected);
-            return TextStyle(
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            );
-          }),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: _orangeAccent,
-            foregroundColor: Colors.black,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            textStyle: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        snackBarTheme: SnackBarThemeData(
-          backgroundColor: _surfaceHigh,
-          contentTextStyle: const TextStyle(color: Colors.white),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-        sliderTheme: SliderThemeData(
-          activeTrackColor: _orangeAccent,
-          inactiveTrackColor: Colors.white.withValues(alpha: 0.14),
-          thumbColor: _orangeAccent,
-          overlayColor: _orangeAccent.withValues(alpha: 0.18),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: _surfaceHigh,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: _orangeAccent, width: 1.2),
-          ),
-        ),
-      ),
+      theme: lightTheme,
+      darkTheme: darkTheme,
+      themeMode: themeMode,
       home: Consumer<VkProvider>(
         builder: (context, vk, _) {
           return vk.isAuthorized ? const HomeScreen() : const LoginScreen();

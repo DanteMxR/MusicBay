@@ -14,6 +14,7 @@ class MiniPlayer extends StatelessWidget {
     if (track == null) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return GestureDetector(
       onTap: () {
@@ -34,7 +35,9 @@ class MiniPlayer extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.28),
+              color: theme.colorScheme.shadow.withValues(
+                alpha: isDark ? 0.28 : 0.18,
+              ),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),

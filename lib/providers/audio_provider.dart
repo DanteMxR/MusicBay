@@ -54,7 +54,6 @@ class AudioProvider extends ChangeNotifier {
   }
 
   Track _resolveTrackWithCache(Track track) {
-    if (track.url.trim().isNotEmpty) return track;
     final cachedPath = _cacheService.getCachedPath(track.id, ownerId: track.ownerId);
     if (cachedPath != null) return track.copyWithUrl(cachedPath);
     return track;
