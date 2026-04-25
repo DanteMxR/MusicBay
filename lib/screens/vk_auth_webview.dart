@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../services/vk_api_service.dart';
 
 class VkAuthWebView extends StatefulWidget {
   const VkAuthWebView({super.key});
@@ -12,26 +13,24 @@ class _VkAuthWebViewState extends State<VkAuthWebView> {
   late final WebViewController _controller;
   bool _loading = true;
 
-  static const int _appId = 2685278;
   static const String _redirectUri = 'https://oauth.vk.com/blank.html';
   static const String _scope = 'audio,offline';
-  static const String _apiVersion = '5.131';
 
   String get _authUrl =>
       'https://oauth.vk.com/authorize?'
-      'client_id=$_appId'
+      'client_id=${VkApiService.appId}'
       '&display=mobile'
       '&redirect_uri=$_redirectUri'
       '&scope=$_scope'
       '&response_type=token'
-      '&v=$_apiVersion';
+      '&v=${VkApiService.apiVersion}';
 
   @override
   void initState() {
     super.initState();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent('KateMobileAndroid/91.1 lite-523 (Android 12; SDK 31; arm64-v8a; en)')
+      ..setUserAgent(VkApiService.userAgent)
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) {

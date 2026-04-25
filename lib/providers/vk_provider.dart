@@ -1,29 +1,51 @@
-import 'package:flutter/foundation.dart';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
+import '../constants.dart';
 import '../models/track.dart';
 import '../models/playlist.dart';
+import '../services/library_index_service.dart';
 import '../services/vk_api_service.dart';
 
 class VkProvider extends ChangeNotifier {
-  final VkApiService _api;
+  static const int _kMaxSearchResults = 500;
 
-  VkProvider(this._api);
+  final VkApiService _api;
+  final LibraryIndexService _libraryIndex;
+
+  VkProvider(this._api, this._libraryIndex);
 
   VkApiService get api => _api;
 
   bool get isAuthorized => _api.isAuthorized;
 
+  @override
+  void dispose() {
+    _api.close();
+    super.dispose();
+  }
+
   // My Audio
   List<Track> _myTracks = [];
+  List<Track> _myTracksIndex = [];
   final Set<String> _savedTrackKeys = {};
   bool _myTracksLoading = false;
   bool _myTracksHasMore = true;
+  bool _myTracksIndexSyncing = false;
+  bool _myTracksIndexComplete = false;
   String? _myTracksError;
+  int _myTracksSearchRequestId = 0;
+  DateTime? _myTracksIndexUpdatedAt;
 
   List<Track> get myTracks => _myTracks;
+  List<Track> get myTracksIndex => _myTracksIndex;
   bool get myTracksLoading => _myTracksLoading;
   bool get myTracksHasMore => _myTracksHasMore;
+  bool get myTracksIndexSyncing => _myTracksIndexSyncing;
   String? get myTracksError => _myTracksError;
+  bool get myTracksFullyLoaded => !_myTracksHasMore && !_myTracksLoading;
+  bool get hasMyTracksIndex => _myTracksIndex.isNotEmpty;
+  bool get myTracksIndexReady => _myTracksIndexComplete;
+  DateTime? get myTracksIndexUpdatedAt => _myTracksIndexUpdatedAt;
   bool isTrackSaved(int trackId, {int? ownerId}) {
     if (ownerId == null) {
       return _savedTrackKeys.any((k) => k.endsWith('_$trackId'));
@@ -36,10 +58,12 @@ class VkProvider extends ChangeNotifier {
   bool _searchLoading = false;
   String _searchQuery = '';
   int _searchRequestId = 0;
+  String? _searchError;
 
   List<Track> get searchResults => _searchResults;
   bool get searchLoading => _searchLoading;
   String get searchQuery => _searchQuery;
+  String? get searchError => _searchError;
 
   // Recommendations
   List<Track> _recommendations = [];
@@ -63,7 +87,7 @@ class VkProvider extends ChangeNotifier {
   bool _discoveryLoading = false;
   String? _discoveryDateKey;
   List<Playlist> _popularAlbums = [];
-  final Map<String, List<Playlist>> _artistAlbumsCache = {};
+  final Map<String, _ArtistAlbumsCacheEntry> _artistAlbumsCache = {};
   final Set<String> _artistAlbumsLoading = {};
 
   List<Track> get dailyMix => _dailyMix;
@@ -71,7 +95,7 @@ class VkProvider extends ChangeNotifier {
   bool get discoveryLoading => _discoveryLoading;
   List<Playlist> get popularAlbums => _popularAlbums;
   List<Playlist> artistAlbums(String artist) =>
-      _artistAlbumsCache[artist] ?? const <Playlist>[];
+      _artistAlbumsCache[artist]?.albums ?? const <Playlist>[];
   bool isArtistAlbumsLoading(String artist) =>
       _artistAlbumsLoading.contains(artist);
 
@@ -96,6 +120,13 @@ class VkProvider extends ChangeNotifier {
   bool get needsCaptcha => _needsCaptcha;
   String? get captchaSid => _captchaSid;
   String? get captchaImg => _captchaImg;
+
+  void bootstrap() {
+    _restoreMyTracksIndexFromDisk();
+    if (isAuthorized) {
+      _startMyTracksIndexSync();
+    }
+  }
 
   Future<bool> login(
     String username,
@@ -122,6 +153,8 @@ class VkProvider extends ChangeNotifier {
 
     if (result['success'] == true) {
       _needsCaptcha = false;
+      _restoreMyTracksIndexFromDisk();
+      _startMyTracksIndexSync();
       notifyListeners();
       return true;
     }
@@ -156,6 +189,8 @@ class VkProvider extends ChangeNotifier {
 
     if (result['success'] == true) {
       _needs2FA = false;
+      _restoreMyTracksIndexFromDisk();
+      _startMyTracksIndexSync();
       notifyListeners();
       return true;
     }
@@ -170,13 +205,19 @@ class VkProvider extends ChangeNotifier {
     _loginError = null;
     _needs2FA = false;
     _needsCaptcha = false;
+    _restoreMyTracksIndexFromDisk();
+    _startMyTracksIndexSync();
     notifyListeners();
   }
 
   Future<void> logout() async {
     await _api.logout();
     _myTracks = [];
+    _myTracksIndex = [];
     _savedTrackKeys.clear();
+    _myTracksIndexSyncing = false;
+    _myTracksIndexComplete = false;
+    _myTracksIndexUpdatedAt = null;
     _searchResults = [];
     _recommendations = [];
     _newTracks = [];
@@ -215,6 +256,8 @@ class VkProvider extends ChangeNotifier {
           _myTracks.map((t) => _trackKey(t.id, t.ownerId)),
         );
       }
+      _mergeTracksIntoMyTracksIndex(tracks);
+      await _persistMyTracksIndex();
     } catch (e) {
       _myTracksError = e.toString();
     }
@@ -223,12 +266,78 @@ class VkProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> ensureMyTracksLoadedForSearch({int maxBatches = 20}) async {
-    var loaded = 0;
-    while (_myTracksHasMore && !_myTracksLoading && loaded < maxBatches) {
-      await loadMyTracks();
-      loaded++;
-      if (_myTracksError != null) break;
+  Future<void> ensureMyTracksLoadedForSearch() async {
+    await syncMyTracksIndex();
+  }
+
+  void cancelMyTracksSearchPrefetch() {
+    _myTracksSearchRequestId++;
+  }
+
+  List<Track> searchMyTracksLocally(String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return _myTracksIndex.isNotEmpty ? _myTracksIndex : _myTracks;
+    }
+
+    final source = _myTracksIndex.isNotEmpty ? _myTracksIndex : _myTracks;
+    return source.where((track) {
+      final artist = track.artist.toLowerCase();
+      final title = track.title.toLowerCase();
+      final album = (track.albumTitle ?? '').toLowerCase();
+      return artist.contains(normalized) ||
+          title.contains(normalized) ||
+          album.contains(normalized);
+    }).toList(growable: false);
+  }
+
+  Future<void> syncMyTracksIndex({bool force = false}) async {
+    if (!isAuthorized || _api.userId == null) return;
+    if (_myTracksIndexSyncing) return;
+    if (!force &&
+        _myTracksIndexComplete &&
+        _myTracksIndexUpdatedAt != null &&
+        DateTime.now().difference(_myTracksIndexUpdatedAt!) <
+            const Duration(minutes: 30)) {
+      return;
+    }
+
+    final requestId = ++_myTracksSearchRequestId;
+    _myTracksIndexSyncing = true;
+    notifyListeners();
+
+    try {
+      final allTracks = <Track>[];
+      var offset = 0;
+
+      while (requestId == _myTracksSearchRequestId) {
+        final batch = await _api.getMyAudio(
+          offset: offset,
+          count: kLibraryIndexBatchSize,
+        );
+        if (batch.isEmpty) break;
+
+        allTracks.addAll(batch);
+        offset += batch.length;
+      }
+
+      if (requestId != _myTracksSearchRequestId) return;
+
+      final indexed = _dedupeTracks(allTracks);
+      _myTracksIndex = indexed;
+      _myTracksIndexComplete = true;
+      _myTracksIndexUpdatedAt = DateTime.now();
+      _savedTrackKeys
+        ..clear()
+        ..addAll(indexed.map((track) => _trackKey(track.id, track.ownerId)));
+      await _persistMyTracksIndex();
+    } catch (e) {
+      debugPrint('VkProvider.syncMyTracksIndex: $e');
+    } finally {
+      if (requestId == _myTracksSearchRequestId) {
+        _myTracksIndexSyncing = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -240,12 +349,14 @@ class VkProvider extends ChangeNotifier {
       _searchResults = [];
       _searchQuery = '';
       _searchLoading = false;
+      _searchError = null;
       notifyListeners();
       return;
     }
 
     _searchQuery = normalizedQuery;
     _searchLoading = true;
+    _searchError = null;
     notifyListeners();
 
     try {
@@ -253,8 +364,10 @@ class VkProvider extends ChangeNotifier {
       if (requestId != _searchRequestId) return;
       _searchResults = _dedupeTracks(found);
     } catch (e) {
+      debugPrint('VkProvider.searchAudio: $e');
       if (requestId != _searchRequestId) return;
       _searchResults = [];
+      _searchError = e.toString();
     }
 
     if (requestId != _searchRequestId) return;
@@ -288,9 +401,12 @@ class VkProvider extends ChangeNotifier {
               normalized.contains(trackArtist);
         }),
       );
-    } catch (_) {
+      _searchError = null;
+    } catch (e) {
+      debugPrint('VkProvider.searchArtistTracks: $e');
       if (requestId != _searchRequestId) return;
       _searchResults = [];
+      _searchError = e.toString();
     }
 
     if (requestId != _searchRequestId) return;
@@ -300,6 +416,7 @@ class VkProvider extends ChangeNotifier {
 
   Future<void> loadMoreSearch() async {
     if (_searchLoading || _searchQuery.isEmpty) return;
+    if (_searchResults.length >= _kMaxSearchResults) return;
     final requestId = _searchRequestId;
     _searchLoading = true;
     notifyListeners();
@@ -310,8 +427,13 @@ class VkProvider extends ChangeNotifier {
         offset: _searchResults.length,
       );
       if (requestId != _searchRequestId) return;
-      _searchResults = _dedupeTracks([..._searchResults, ...more]);
-    } catch (_) {}
+      final merged = _dedupeTracks([..._searchResults, ...more]);
+      _searchResults = merged.length > _kMaxSearchResults
+          ? merged.take(_kMaxSearchResults).toList(growable: false)
+          : merged;
+    } catch (e) {
+      debugPrint('VkProvider.loadMoreSearch: $e');
+    }
 
     if (requestId != _searchRequestId) return;
     _searchLoading = false;
@@ -332,7 +454,9 @@ class VkProvider extends ChangeNotifier {
       } else {
         _recommendations = [..._recommendations, ...tracks];
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('VkProvider.loadRecommendations: $e');
+    }
 
     _recommendationsLoading = false;
     notifyListeners();
@@ -381,7 +505,9 @@ class VkProvider extends ChangeNotifier {
                 normalizedArtist.contains(trackArtist);
           });
           artistPicks.addAll(filtered);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('VkProvider.loadDiscovery (artist=$artist): $e');
+        }
       }
 
       final mixPool = _dedupeTracks([
@@ -404,7 +530,8 @@ class VkProvider extends ChangeNotifier {
       }
 
       _discoveryDateKey = dateKey;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('VkProvider.loadDiscovery: $e');
       if (_dailyMix.isEmpty) {
         _dailyMix = _dedupeTracks([
           ..._recommendations,
@@ -425,7 +552,9 @@ class VkProvider extends ChangeNotifier {
 
     try {
       _playlists = await _api.getPlaylists();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('VkProvider.loadPlaylists: $e');
+    }
 
     _playlistsLoading = false;
     notifyListeners();
@@ -445,6 +574,8 @@ class VkProvider extends ChangeNotifier {
       _myTracks.insert(0, track);
     }
     _savedTrackKeys.add(_trackKey(track.id, track.ownerId));
+    _mergeTracksIntoMyTracksIndex([track]);
+    await _persistMyTracksIndex();
     notifyListeners();
   }
 
@@ -462,7 +593,14 @@ class VkProvider extends ChangeNotifier {
     _myTracks.removeWhere(
       (t) => t.id == track.id && t.ownerId == track.ownerId,
     );
+    _myTracksIndex = _myTracksIndex
+        .where((t) => !_isSameTrackIdentity(t, track))
+        .toList(growable: false);
+    if (_myTracksIndex.isEmpty) {
+      _myTracksIndexComplete = false;
+    }
     _savedTrackKeys.remove(_trackKey(track.id, track.ownerId));
+    await _persistMyTracksIndex();
     notifyListeners();
   }
 
@@ -496,7 +634,9 @@ class VkProvider extends ChangeNotifier {
         _newTracks = [..._newTracks, ...tracks];
         _newAlbums = _dedupePlaylists([..._newAlbums, ...albums]);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('VkProvider.loadNewReleases: $e');
+    }
 
     _newReleasesLoading = false;
     notifyListeners();
@@ -505,7 +645,7 @@ class VkProvider extends ChangeNotifier {
   Future<void> loadArtistAlbums(String artist, {bool refresh = false}) async {
     final key = artist.trim();
     if (key.isEmpty) return;
-    if (!refresh && _artistAlbumsCache.containsKey(key)) return;
+    if (!refresh && _hasFreshArtistAlbumsCache(key)) return;
     if (_artistAlbumsLoading.contains(key)) return;
 
     _artistAlbumsLoading.add(key);
@@ -513,9 +653,16 @@ class VkProvider extends ChangeNotifier {
 
     try {
       final albums = await _api.getAlbumsByArtist(key, count: 24);
-      _artistAlbumsCache[key] = albums;
-    } catch (_) {
-      _artistAlbumsCache.putIfAbsent(key, () => const <Playlist>[]);
+      _artistAlbumsCache[key] = _ArtistAlbumsCacheEntry(
+        albums,
+        DateTime.now(),
+      );
+    } catch (e) {
+      debugPrint('VkProvider.loadArtistAlbums ($key): $e');
+      _artistAlbumsCache.putIfAbsent(
+        key,
+        () => _ArtistAlbumsCacheEntry(const <Playlist>[], DateTime.now()),
+      );
     }
 
     _artistAlbumsLoading.remove(key);
@@ -545,13 +692,68 @@ class VkProvider extends ChangeNotifier {
           _myTracks.insert(0, track);
         }
         added++;
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('VkProvider.saveTracksToMyLibrary (${track.id}): $e');
+      }
     }
     notifyListeners();
     return added;
   }
 
   String _trackKey(int trackId, int ownerId) => '${ownerId}_$trackId';
+
+  bool _isSameTrackIdentity(Track a, Track b) {
+    return a.id == b.id && a.ownerId == b.ownerId;
+  }
+
+  void _mergeTracksIntoMyTracksIndex(Iterable<Track> tracks) {
+    if (tracks.isEmpty) return;
+    _myTracksIndex = _dedupeTracks([...tracks, ..._myTracksIndex]);
+  }
+
+  void _restoreMyTracksIndexFromDisk() {
+    final userId = _api.userId;
+    if (userId == null) return;
+
+    _myTracksIndex = _libraryIndex.readMyTracks(userId);
+    _myTracksIndexComplete = _libraryIndex.readMyTracksIsComplete(userId);
+    _myTracksIndexUpdatedAt = _libraryIndex.readMyTracksUpdatedAt(userId);
+    if (_myTracksIndex.isNotEmpty) {
+      _savedTrackKeys
+        ..clear()
+        ..addAll(
+          _myTracksIndex.map((track) => _trackKey(track.id, track.ownerId)),
+        );
+    }
+  }
+
+  void _startMyTracksIndexSync() {
+    Future<void>(() async {
+      await syncMyTracksIndex();
+    });
+  }
+
+  Future<void> _persistMyTracksIndex() async {
+    final userId = _api.userId;
+    if (userId == null) return;
+
+    if (_myTracksIndex.isEmpty) {
+      await _libraryIndex.clearMyTracks(userId);
+      return;
+    }
+
+    await _libraryIndex.writeMyTracks(
+      userId,
+      _myTracksIndex,
+      isComplete: _myTracksIndexComplete,
+    );
+  }
+
+  bool _hasFreshArtistAlbumsCache(String artist) {
+    final entry = _artistAlbumsCache[artist];
+    if (entry == null) return false;
+    return DateTime.now().difference(entry.cachedAt) < kArtistAlbumsCacheTtl;
+  }
 
   List<Track> _dedupeTracks(Iterable<Track> tracks) {
     final byKey = <String, Track>{};
@@ -620,4 +822,11 @@ class VkProvider extends ChangeNotifier {
     final random = Random(seed);
     return albums[random.nextInt(albums.length)];
   }
+}
+
+class _ArtistAlbumsCacheEntry {
+  final List<Playlist> albums;
+  final DateTime cachedAt;
+
+  const _ArtistAlbumsCacheEntry(this.albums, this.cachedAt);
 }

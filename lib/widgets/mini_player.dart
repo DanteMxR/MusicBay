@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/track.dart';
 import '../providers/audio_provider.dart';
 import '../screens/player_screen.dart';
 import 'artwork_image.dart';
@@ -9,12 +10,13 @@ class MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final audio = context.watch<AudioProvider>();
-    final track = audio.currentTrack;
+    final track = context.select<AudioProvider, Track?>((a) => a.currentTrack);
     if (track == null) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final audio = context.read<AudioProvider>();
+    final durationMs = track.duration > 0 ? track.duration * 1000 : 0;
 
     return GestureDetector(
       onTap: () {
@@ -46,21 +48,17 @@ class MiniPlayer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Progress bar
             StreamBuilder<Duration>(
               stream: audio.positionStream,
               builder: (context, posSnap) {
-                return StreamBuilder<Duration?>(
-                  stream: audio.durationStream,
-                  builder: (context, durSnap) {
-                    final pos = posSnap.data?.inMilliseconds.toDouble() ?? 0;
-                    final dur = durSnap.data?.inMilliseconds.toDouble() ?? 1;
-                    return LinearProgressIndicator(
-                      value: dur > 0 ? (pos / dur).clamp(0, 1) : 0,
-                      minHeight: 2,
-                      backgroundColor: Colors.transparent,
-                    );
-                  },
+                final pos = posSnap.data?.inMilliseconds ?? 0;
+                final value = durationMs > 0
+                    ? (pos / durationMs).clamp(0.0, 1.0)
+                    : 0.0;
+                return LinearProgressIndicator(
+                  value: value,
+                  minHeight: 2,
+                  backgroundColor: Colors.transparent,
                 );
               },
             ),
@@ -117,14 +115,17 @@ class MiniPlayer extends StatelessWidget {
                     onPressed: audio.previous,
                     iconSize: 28,
                   ),
-                  IconButton(
-                    icon: Icon(
-                      audio.isPlaying
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
+                  Selector<AudioProvider, bool>(
+                    selector: (_, a) => a.isPlaying,
+                    builder: (_, isPlaying, _) => IconButton(
+                      icon: Icon(
+                        isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                      ),
+                      onPressed: audio.playPause,
+                      iconSize: 32,
                     ),
-                    onPressed: audio.playPause,
-                    iconSize: 32,
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_next_rounded),

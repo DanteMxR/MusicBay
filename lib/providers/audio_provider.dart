@@ -1,15 +1,17 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import '../constants.dart';
 import '../models/track.dart';
 import '../services/audio_player_service.dart';
 import '../services/cache_service.dart';
-import 'vk_provider.dart';
+
+typedef IsTrackSavedCallback = bool Function(int trackId, {int? ownerId});
 
 class AudioProvider extends ChangeNotifier {
   final AudioPlayerService _audioService;
   final CacheService _cacheService;
-  final VkProvider _vkProvider;
+  final IsTrackSavedCallback _isTrackSaved;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   bool _autoCachingTrack = false;
   String? _lastAutoCacheTrackKey;
@@ -19,7 +21,7 @@ class AudioProvider extends ChangeNotifier {
   int? _lastRecoveredTrackId;
   bool _disposed = false;
 
-  AudioProvider(this._audioService, this._cacheService, this._vkProvider) {
+  AudioProvider(this._audioService, this._cacheService, this._isTrackSaved) {
     _subscriptions.add(
       _audioService.currentIndexStream.listen((_) {
         _safeNotifyListeners();
@@ -284,7 +286,7 @@ class AudioProvider extends ChangeNotifier {
     if (track == null) return;
     final trackKey = _trackKey(track);
     if (!isPlaying) return;
-    if (!_vkProvider.isTrackSaved(track.id, ownerId: track.ownerId)) return;
+    if (!_isTrackSaved(track.id, ownerId: track.ownerId)) return;
     if (_cacheService.isTrackCached(track.id, ownerId: track.ownerId)) return;
     if (_lastAutoCacheTrackKey == trackKey) return;
     if (_autoCachingTrack) return;
@@ -325,7 +327,7 @@ class AudioProvider extends ChangeNotifier {
     if (elapsedMs < 500 || advancedMs <= 0) return;
 
     // Ignore seeks and large jumps initiated by user/system.
-    if (advancedMs > 8000) return;
+    if (advancedMs > kPlaybackGlitchLargeJumpMs) return;
 
     final ratio = advancedMs / elapsedMs;
     if (ratio < 1.35) return;

@@ -3,12 +3,19 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
+import '../constants.dart';
 import '../models/track.dart';
 
 class CacheService {
   static const String _boxName = 'cached_tracks';
   late Box<Map> _box;
-  final Dio _dio = Dio();
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      sendTimeout: const Duration(seconds: 30),
+      // No receiveTimeout — file downloads may legitimately take a while.
+    ),
+  );
   final Map<String, Future<String?>> _activeDownloads = {};
 
   Future<void> init() async {
@@ -131,7 +138,7 @@ class CacheService {
 
   Future<int> cacheTracksIfNeeded(
     Iterable<Track> tracks, {
-    int maxToDownload = 200,
+    int maxToDownload = kDefaultCacheBatchSize,
   }) async {
     var cachedNow = 0;
     final unique = <String, Track>{};

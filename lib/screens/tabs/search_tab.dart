@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants.dart';
 import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/vk_provider.dart';
@@ -129,14 +130,45 @@ class _SearchTabState extends State<SearchTab> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    if (vk.searchError != null && vk.searchResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 48),
+            const SizedBox(height: 16),
+            const Text('Не удалось выполнить поиск'),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () {
+                if (widget.artistOnly) {
+                  vk.searchArtistTracks(vk.searchQuery);
+                } else {
+                  vk.searchAudio(vk.searchQuery);
+                }
+              },
+              child: const Text('Повторить'),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (vk.searchResults.isEmpty) {
       return const Center(child: Text('Ничего не найдено'));
     }
 
+    final cache = context.read<CacheService>();
+    final cachedKeys = <String>{
+      for (final t in vk.searchResults)
+        if (cache.isTrackCached(t.id, ownerId: t.ownerId)) '${t.ownerId}_${t.id}',
+    };
+
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         if (notification.metrics.pixels >
-            notification.metrics.maxScrollExtent - 200) {
+            notification.metrics.maxScrollExtent -
+                kSearchPaginationThresholdPx) {
           vk.loadMoreSearch();
         }
         return false;
@@ -146,12 +178,11 @@ class _SearchTabState extends State<SearchTab> {
         itemBuilder: (_, index) {
           final track = vk.searchResults[index];
           final isPlaying = audio.isPlayingTrack(track);
-          final cache = context.read<CacheService>();
 
           return TrackTile(
             track: track,
             isPlaying: isPlaying,
-            isCached: cache.isTrackCached(track.id, ownerId: track.ownerId),
+            isCached: cachedKeys.contains('${track.ownerId}_${track.id}'),
             trailing: _buildAddToLibraryButton(track),
             onTap: () =>
                 audio.playPauseTrack(track, vk.searchResults, startIndex: index),
@@ -172,6 +203,25 @@ class _SearchTabState extends State<SearchTab> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final cache = context.read<CacheService>();
+    final newTracksLimit = vk.newTracks.length < 20 ? vk.newTracks.length : 20;
+    final recsLimit =
+        vk.recommendations.length < 30 ? vk.recommendations.length : 30;
+    final cachedKeys = <String>{
+      for (var i = 0; i < newTracksLimit; i++)
+        if (cache.isTrackCached(
+          vk.newTracks[i].id,
+          ownerId: vk.newTracks[i].ownerId,
+        ))
+          '${vk.newTracks[i].ownerId}_${vk.newTracks[i].id}',
+      for (var i = 0; i < recsLimit; i++)
+        if (cache.isTrackCached(
+          vk.recommendations[i].id,
+          ownerId: vk.recommendations[i].ownerId,
+        ))
+          '${vk.recommendations[i].ownerId}_${vk.recommendations[i].id}',
+    };
+
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 24),
@@ -186,19 +236,21 @@ class _SearchTabState extends State<SearchTab> {
               ),
             ),
           ),
-          for (var i = 0; i < vk.newTracks.length && i < 20; i++)
-            Builder(builder: (context) {
-              final cache = context.read<CacheService>();
-              return TrackTile(
-                track: vk.newTracks[i],
-                isPlaying: audio.isPlayingTrack(vk.newTracks[i]),
-                isCached: cache.isTrackCached(vk.newTracks[i].id, ownerId: vk.newTracks[i].ownerId),
-                trailing: _buildAddToLibraryButton(vk.newTracks[i]),
-                onTap: () =>
-                    audio.playPauseTrack(vk.newTracks[i], vk.newTracks, startIndex: i),
-                onLongPress: () => _showAddDialog(vk.newTracks[i]),
-              );
-            }),
+          for (var i = 0; i < newTracksLimit; i++)
+            TrackTile(
+              track: vk.newTracks[i],
+              isPlaying: audio.isPlayingTrack(vk.newTracks[i]),
+              isCached: cachedKeys.contains(
+                '${vk.newTracks[i].ownerId}_${vk.newTracks[i].id}',
+              ),
+              trailing: _buildAddToLibraryButton(vk.newTracks[i]),
+              onTap: () => audio.playPauseTrack(
+                vk.newTracks[i],
+                vk.newTracks,
+                startIndex: i,
+              ),
+              onLongPress: () => _showAddDialog(vk.newTracks[i]),
+            ),
         ],
         if (vk.recommendations.isNotEmpty) ...[
           Padding(
@@ -210,22 +262,21 @@ class _SearchTabState extends State<SearchTab> {
               ),
             ),
           ),
-          for (var i = 0; i < vk.recommendations.length && i < 30; i++)
-            Builder(builder: (context) {
-              final cache = context.read<CacheService>();
-              return TrackTile(
-                track: vk.recommendations[i],
-                isPlaying: audio.isPlayingTrack(vk.recommendations[i]),
-                isCached: cache.isTrackCached(vk.recommendations[i].id, ownerId: vk.recommendations[i].ownerId),
-                trailing: _buildAddToLibraryButton(vk.recommendations[i]),
-                onTap: () => audio.playPauseTrack(
-                  vk.recommendations[i],
-                  vk.recommendations,
-                  startIndex: i,
-                ),
-                onLongPress: () => _showAddDialog(vk.recommendations[i]),
-              );
-            }),
+          for (var i = 0; i < recsLimit; i++)
+            TrackTile(
+              track: vk.recommendations[i],
+              isPlaying: audio.isPlayingTrack(vk.recommendations[i]),
+              isCached: cachedKeys.contains(
+                '${vk.recommendations[i].ownerId}_${vk.recommendations[i].id}',
+              ),
+              trailing: _buildAddToLibraryButton(vk.recommendations[i]),
+              onTap: () => audio.playPauseTrack(
+                vk.recommendations[i],
+                vk.recommendations,
+                startIndex: i,
+              ),
+              onLongPress: () => _showAddDialog(vk.recommendations[i]),
+            ),
         ],
         if (vk.recommendations.isEmpty && vk.newTracks.isEmpty)
           const Padding(

@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants.dart';
 import '../../models/track.dart';
-import '../../providers/vk_provider.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/vk_provider.dart';
 import '../../services/cache_service.dart';
 import '../../widgets/track_tile.dart';
 
@@ -23,12 +24,26 @@ class _MyMusicTabState extends State<MyMusicTab> {
   String _searchQuery = '';
   bool _isSearchMode = false;
   bool _prefetchScheduled = false;
+  bool _chipsVisible = true;
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _cancelSearchPrefetch();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _cancelSearchPrefetch() {
+    context.read<VkProvider>().cancelMyTracksSearchPrefetch();
+  }
+
+  void _scheduleSearchIndexSync(String normalizedQuery) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || normalizedQuery.isEmpty) return;
+      context.read<VkProvider>().ensureMyTracksLoadedForSearch();
+    });
   }
 
   void _prefetchMyTracks(VkProvider vk, {ScrollMetrics? metrics}) {
@@ -37,8 +52,8 @@ class _MyMusicTabState extends State<MyMusicTab> {
     if (vk.myTracksLoading || !vk.myTracksHasMore) return;
     if (vk.myTracksError != null) return;
 
-    // Trigger earlier than the physical end to keep long lists responsive.
-    final shouldLoad = metrics == null || metrics.extentAfter < 1400;
+    final shouldLoad =
+        metrics == null || metrics.extentAfter < kMyTracksPrefetchExtentPx;
     if (!shouldLoad) return;
 
     vk.loadMyTracks();
@@ -57,23 +72,17 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 autofocus: true,
                 textInputAction: TextInputAction.search,
                 decoration: const InputDecoration(
-                  hintText:
-                      '\u041f\u043e\u0438\u0441\u043a \u0432 \u043c\u043e\u0435\u0439 \u043c\u0443\u0437\u044b\u043a\u0435',
+                  hintText: 'Поиск в моей музыке',
                   border: InputBorder.none,
                 ),
                 onChanged: (value) {
                   final normalized = value.trim().toLowerCase();
                   setState(() => _searchQuery = normalized);
-                  _searchDebounce?.cancel();
-                  _searchDebounce = Timer(
-                    const Duration(milliseconds: 300),
-                    () {
-                      if (!mounted || normalized.isEmpty) return;
-                      context
-                          .read<VkProvider>()
-                          .ensureMyTracksLoadedForSearch();
-                    },
-                  );
+                  if (normalized.isEmpty) {
+                    _cancelSearchPrefetch();
+                  } else {
+                    _scheduleSearchIndexSync(normalized);
+                  }
                 },
               )
             : const Text('Моя музыка'),
@@ -85,6 +94,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 if (_isSearchMode) {
                   _isSearchMode = false;
                   _searchDebounce?.cancel();
+                  _cancelSearchPrefetch();
                   _searchController.clear();
                   _searchQuery = '';
                 } else {
@@ -127,7 +137,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
     }
 
     final cache = context.read<CacheService>();
-    final bool isOffline = vk.myTracksError != null && vk.myTracks.isEmpty;
+    final isOffline = vk.myTracksError != null && vk.myTracks.isEmpty;
     final List<Track> allTracks;
 
     if (isOffline) {
@@ -164,12 +174,11 @@ class _MyMusicTabState extends State<MyMusicTab> {
     }
 
     final theme = Theme.of(context);
-    final cachedKeys = <String>{};
-    for (final track in allTracks) {
-      if (cache.isTrackCached(track.id, ownerId: track.ownerId)) {
-        cachedKeys.add('${track.ownerId}_${track.id}');
-      }
-    }
+    final cachedKeys = <String>{
+      for (final track in allTracks)
+        if (cache.isTrackCached(track.id, ownerId: track.ownerId))
+          '${track.ownerId}_${track.id}',
+    };
 
     final filteredByType = _filter == _MyMusicFilter.all
         ? allTracks
@@ -179,132 +188,313 @@ class _MyMusicTabState extends State<MyMusicTab> {
 
     final visibleTracks = _searchQuery.isEmpty
         ? filteredByType
-        : filteredByType
-              .where((t) {
-                final artist = t.artist.toLowerCase();
-                final title = t.title.toLowerCase();
-                final album = (t.albumTitle ?? '').toLowerCase();
-                return artist.contains(_searchQuery) ||
-                    title.contains(_searchQuery) ||
-                    album.contains(_searchQuery);
-              })
-              .toList(growable: false);
+        : _filter == _MyMusicFilter.downloaded || isOffline
+        ? _filterTracks(filteredByType, _searchQuery)
+        : vk.searchMyTracksLocally(_searchQuery);
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (notification is ScrollUpdateNotification ||
-            notification is UserScrollNotification) {
-          _prefetchMyTracks(vk, metrics: notification.metrics);
-        }
-        return false;
-      },
-      child: ListView.builder(
-        itemCount: visibleTracks.length + 1 + (vk.myTracksLoading ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (isOffline)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
+    final visibleCachedKeys = <String>{
+      for (final track in visibleTracks)
+        if (cache.isTrackCached(track.id, ownerId: track.ownerId))
+          '${track.ownerId}_${track.id}',
+    };
+
+    final isIndexingLibrary =
+        _searchQuery.isNotEmpty && !isOffline && vk.myTracksIndexSyncing;
+
+    return Column(
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOut,
+          child: _chipsVisible
+              ? SizedBox(
+                  width: double.infinity,
+                  child: ColoredBox(
+                    color: theme.scaffoldBackgroundColor,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 10, 14, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.cloud_off, size: 16,
-                              color: theme.colorScheme.onSurfaceVariant),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Нет сети. Показаны скачанные треки',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+                          if (isOffline)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.cloud_off,
+                                    size: 16,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Нет сети. Показаны скачанные треки',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme.colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        vk.loadMyTracks(refresh: true),
+                                    child: const Text('Повторить'),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
-                          TextButton(
-                            onPressed: () => vk.loadMyTracks(refresh: true),
-                            child: const Text('Повторить'),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Все'),
+                                selected: _filter == _MyMusicFilter.all,
+                                onSelected: (_) =>
+                                    setState(() => _filter = _MyMusicFilter.all),
+                              ),
+                              ChoiceChip(
+                                label: const Text('Скачанные'),
+                                selected:
+                                    _filter == _MyMusicFilter.downloaded,
+                                onSelected: (_) => setState(
+                                  () => _filter = _MyMusicFilter.downloaded,
+                                ),
+                              ),
+                              if (!isOffline && allTracks.isNotEmpty)
+                                ActionChip(
+                                  avatar: const Icon(
+                                    Icons.download_for_offline_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Скачать оффлайн'),
+                                  onPressed: () =>
+                                      _showOfflineCacheOptions(context, vk),
+                                ),
+                              if (cachedKeys.isNotEmpty)
+                                ActionChip(
+                                  avatar: const Icon(
+                                    Icons.delete_sweep_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Очистить кэш'),
+                                  onPressed: () =>
+                                      _showClearCacheDialog(context),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('Все'),
-                        selected: _filter == _MyMusicFilter.all,
-                        onSelected: (_) =>
-                            setState(() => _filter = _MyMusicFilter.all),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Скачанные'),
-                        selected: _filter == _MyMusicFilter.downloaded,
-                        onSelected: (_) =>
-                            setState(() => _filter = _MyMusicFilter.downloaded),
-                      ),
-                      if (cachedKeys.isNotEmpty)
-                        ActionChip(
-                          avatar:
-                              const Icon(Icons.delete_sweep_outlined, size: 18),
-                          label: const Text('Очистить кэш'),
-                          onPressed: () => _showClearCacheDialog(context),
-                        ),
-                    ],
                   ),
-                ],
-              ),
-            );
-          }
-
-          final dataIndex = index - 1;
-
-          if (dataIndex >= visibleTracks.length) {
-            return const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-
-          final track = visibleTracks[dataIndex];
-          final isPlaying =
-              audio.currentTrack?.id == track.id &&
-              audio.currentTrack?.ownerId == track.ownerId;
-          final isCached = cachedKeys.contains('${track.ownerId}_${track.id}');
-
-          return TrackTile(
-            track: track,
-            isPlaying: isPlaying,
-            isCached: isCached,
-            trailing: isCached
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        track.durationFormatted,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.download_done_rounded,
-                        size: 18,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ],
-                  )
-                : null,
-            onTap: () => audio.playPauseTrack(
-              track,
-              visibleTracks,
-              startIndex: dataIndex,
+                )
+              : const SizedBox.shrink(),
+        ),
+        if (isIndexingLibrary)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Индексируем медиатеку для точного локального поиска',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            onLongPress: () => _showTrackMenu(context, track, vk),
-          );
-        },
+          ),
+        Expanded(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification is ScrollUpdateNotification) {
+                final delta = notification.scrollDelta ?? 0;
+                if (delta > 4 && _chipsVisible) {
+                  setState(() => _chipsVisible = false);
+                } else if (delta < -4 && !_chipsVisible) {
+                  setState(() => _chipsVisible = true);
+                }
+                _prefetchMyTracks(vk, metrics: notification.metrics);
+              } else if (notification is UserScrollNotification) {
+                _prefetchMyTracks(vk, metrics: notification.metrics);
+              }
+              return false;
+            },
+            child: ListView.builder(
+              itemCount: visibleTracks.length + (vk.myTracksLoading ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= visibleTracks.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                final track = visibleTracks[index];
+                final isPlaying =
+                    audio.currentTrack?.id == track.id &&
+                    audio.currentTrack?.ownerId == track.ownerId;
+                final isCached = visibleCachedKeys.contains(
+                  '${track.ownerId}_${track.id}',
+                );
+
+                return TrackTile(
+                  track: track,
+                  isPlaying: isPlaying,
+                  isCached: isCached,
+                  trailing: isCached
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              track.durationFormatted,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.download_done_rounded,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ],
+                        )
+                      : null,
+                  onTap: () => audio.playPauseTrack(
+                    track,
+                    visibleTracks,
+                    startIndex: index,
+                  ),
+                  onLongPress: () => _showTrackMenu(context, track, vk),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Track> _filterTracks(List<Track> tracks, String query) {
+    return tracks.where((track) {
+      final artist = track.artist.toLowerCase();
+      final title = track.title.toLowerCase();
+      final album = (track.albumTitle ?? '').toLowerCase();
+      return artist.contains(query) ||
+          title.contains(query) ||
+          album.contains(query);
+    }).toList(growable: false);
+  }
+
+  List<Track> _offlineSourceTracks(VkProvider vk) {
+    final source = vk.myTracksIndex.isNotEmpty ? vk.myTracksIndex : vk.myTracks;
+    return source.where((track) => track.url.trim().isNotEmpty).toList(
+      growable: false,
+    );
+  }
+
+  void _showOfflineCacheOptions(BuildContext context, VkProvider vk) {
+    final source = _offlineSourceTracks(vk);
+    if (source.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Пока нет доступных треков для оффлайн-кэша'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Загрузка в оффлайн-кэш может занять некоторое время и зависит от скорости сети.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download_for_offline_outlined),
+              title: const Text('Скачать первые 50'),
+              subtitle: Text(
+                'Будут сохранены ${source.length < 50 ? source.length : 50} треков',
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await _cacheFirstTracks(context, vk, 50);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.library_music_outlined),
+              title: const Text('Скачать первые 100'),
+              subtitle: Text(
+                'Будут сохранены ${source.length < 100 ? source.length : 100} треков',
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await _cacheFirstTracks(context, vk, 100);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cacheFirstTracks(
+    BuildContext context,
+    VkProvider vk,
+    int count,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final cache = context.read<CacheService>();
+    final source = _offlineSourceTracks(vk);
+    final tracksToCache = source.take(count).toList(growable: false);
+
+    if (tracksToCache.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Нет треков, доступных для оффлайн-кэша'),
+        ),
+      );
+      return;
+    }
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Скачиваем первые ${tracksToCache.length} треков. Это может занять некоторое время...',
+        ),
+      ),
+    );
+
+    final cached = await cache.cacheTracksIfNeeded(
+      tracksToCache,
+      maxToDownload: count,
+    );
+
+    if (!mounted) return;
+    setState(() {});
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Оффлайн доступно: $cached из ${tracksToCache.length} треков',
+        ),
       ),
     );
   }
@@ -352,7 +542,9 @@ class _MyMusicTabState extends State<MyMusicTab> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Очистить кэш'),
-        content: const Text('Удалить все скачанные треки с устройства?'),
+        content: const Text(
+          'Удалить все скачанные треки с устройства?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -364,9 +556,9 @@ class _MyMusicTabState extends State<MyMusicTab> {
               await context.read<CacheService>().clearCache();
               if (!context.mounted) return;
               setState(() {});
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('Кэш очищен')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Кэш очищен')),
+              );
             },
             child: const Text('Очистить'),
           ),

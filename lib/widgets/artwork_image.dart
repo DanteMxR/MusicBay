@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -27,9 +28,15 @@ class ArtworkImage extends StatefulWidget {
 }
 
 class _ArtworkImageState extends State<ArtworkImage> {
-  static final Dio _dio = Dio();
-  static const int _maxCacheSize = 500;
-  static final Map<String, String?> _fallbackCache = {};
+  static final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 15),
+    ),
+  );
+  static const int _maxCacheSize = 100;
+  static const Duration _cacheTtl = Duration(hours: 24);
+  static final Map<String, _FallbackEntry> _fallbackCache = {};
 
   bool _useFallback = false;
   late Future<String?> _fallbackFuture;
@@ -37,7 +44,10 @@ class _ArtworkImageState extends State<ArtworkImage> {
   @override
   void initState() {
     super.initState();
-    _fallbackFuture = _resolveFallbackArtwork(widget.track);
+    _fallbackFuture = _resolveFallbackArtwork(
+      widget.track,
+      requestedSize: _fallbackArtworkSize(),
+    );
   }
 
   @override
@@ -47,7 +57,10 @@ class _ArtworkImageState extends State<ArtworkImage> {
       return;
     }
     _useFallback = false;
-    _fallbackFuture = _resolveFallbackArtwork(widget.track);
+    _fallbackFuture = _resolveFallbackArtwork(
+      widget.track,
+      requestedSize: _fallbackArtworkSize(),
+    );
   }
 
   @override
@@ -59,12 +72,9 @@ class _ArtworkImageState extends State<ArtworkImage> {
 
   Widget _buildImage(BuildContext context) {
     if (!_useFallback && _isValidHttp(widget.track.albumThumb)) {
-      return CachedNetworkImage(
-        imageUrl: widget.track.albumThumb!,
-        width: widget.width,
-        height: widget.height,
-        fit: widget.fit,
-        placeholder: (_, _) => _placeholder(context),
+      return _buildCachedNetworkImage(
+        context,
+        widget.track.albumThumb!,
         errorWidget: (_, _, _) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && !_useFallback) {
@@ -81,17 +91,34 @@ class _ArtworkImageState extends State<ArtworkImage> {
       builder: (context, snapshot) {
         final url = snapshot.data;
         if (_isValidHttp(url)) {
-          return CachedNetworkImage(
-            imageUrl: url!,
-            width: widget.width,
-            height: widget.height,
-            fit: widget.fit,
-            placeholder: (_, _) => _placeholder(context),
+          return _buildCachedNetworkImage(
+            context,
+            url!,
             errorWidget: (_, _, _) => _placeholder(context),
           );
         }
         return _placeholder(context);
       },
+    );
+  }
+
+  Widget _buildCachedNetworkImage(
+    BuildContext context,
+    String imageUrl, {
+    required LoadingErrorWidgetBuilder errorWidget,
+  }) {
+    final cacheDimension = _cacheDimension(context);
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
+      memCacheWidth: cacheDimension,
+      memCacheHeight: cacheDimension,
+      maxWidthDiskCache: cacheDimension,
+      maxHeightDiskCache: cacheDimension,
+      placeholder: (_, _) => _placeholder(context),
+      errorWidget: errorWidget,
     );
   }
 
@@ -121,10 +148,16 @@ class _ArtworkImageState extends State<ArtworkImage> {
     return lower.startsWith('https://') || lower.startsWith('http://');
   }
 
-  static Future<String?> _resolveFallbackArtwork(Track track) async {
-    final cacheKey = '${track.artist}|${track.title}'.toLowerCase();
-    if (_fallbackCache.containsKey(cacheKey)) {
-      return _fallbackCache[cacheKey];
+  static Future<String?> _resolveFallbackArtwork(
+    Track track, {
+    required int requestedSize,
+  }) async {
+    final cacheKey = '${track.artist}|${track.title}|$requestedSize'
+        .toLowerCase();
+    final now = DateTime.now();
+    final existing = _fallbackCache[cacheKey];
+    if (existing != null && now.difference(existing.cachedAt) < _cacheTtl) {
+      return existing.url;
     }
 
     if (_fallbackCache.length >= _maxCacheSize) {
@@ -147,21 +180,22 @@ class _ArtworkImageState extends State<ArtworkImage> {
       final body = raw is String ? jsonDecode(raw) : raw;
       final results = (body['results'] as List?) ?? const [];
       if (results.isEmpty) {
-        _fallbackCache[cacheKey] = null;
+        _fallbackCache[cacheKey] = _FallbackEntry(null, now);
         return null;
       }
 
       String? url = results.first['artworkUrl100']?.toString();
       if (url != null) {
+        final size = requestedSize.clamp(100, 600);
         url = url
-            .replaceAll('100x100bb', '600x600bb')
-            .replaceAll('100x100', '600x600');
+            .replaceAll('100x100bb', '${size}x${size}bb')
+            .replaceAll('100x100', '${size}x$size');
       }
 
-      _fallbackCache[cacheKey] = url;
+      _fallbackCache[cacheKey] = _FallbackEntry(url, now);
       return url;
     } catch (_) {
-      _fallbackCache[cacheKey] = null;
+      _fallbackCache[cacheKey] = _FallbackEntry(null, now);
       return null;
     }
   }
@@ -169,4 +203,22 @@ class _ArtworkImageState extends State<ArtworkImage> {
   String _trackSignature(Track track) {
     return '${track.ownerId}_${track.id}|${track.artist}|${track.title}|${track.albumThumb ?? ''}';
   }
+
+  int _cacheDimension(BuildContext context) {
+    final devicePixelRatio = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1;
+    final logicalSize = math.max(widget.width, widget.height);
+    final pixels = (logicalSize * devicePixelRatio).round();
+    return pixels.clamp(150, 600);
+  }
+
+  int _fallbackArtworkSize() {
+    final logicalSize = math.max(widget.width, widget.height);
+    return (logicalSize * 2).round().clamp(150, 600);
+  }
+}
+
+class _FallbackEntry {
+  final String? url;
+  final DateTime cachedAt;
+  const _FallbackEntry(this.url, this.cachedAt);
 }

@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'services/vk_api_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/cache_service.dart';
+import 'services/library_index_service.dart';
 import 'providers/vk_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/theme_provider.dart';
@@ -26,24 +27,35 @@ Future<void> main() async {
   final cacheService = CacheService();
   await cacheService.init();
 
+  final libraryIndexService = LibraryIndexService();
+  await libraryIndexService.init();
+
   final audioService = AudioPlayerService();
   await audioService.init();
 
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => VkProvider(vkApi)),
+        ChangeNotifierProvider(
+          create: (_) => VkProvider(vkApi, libraryIndexService)..bootstrap(),
+        ),
+        Provider<LibraryIndexService>.value(value: libraryIndexService),
         Provider<CacheService>.value(value: cacheService),
         Provider<AudioPlayerService>(
           create: (_) => audioService,
-          dispose: (_, service) => service.dispose(),
+          dispose: (_, service) async {
+            await service.dispose();
+          },
         ),
         ChangeNotifierProvider(
-          create: (context) => AudioProvider(
-            context.read<AudioPlayerService>(),
-            context.read<CacheService>(),
-            context.read<VkProvider>(),
-          ),
+          create: (context) {
+            final vk = context.read<VkProvider>();
+            return AudioProvider(
+              context.read<AudioPlayerService>(),
+              context.read<CacheService>(),
+              vk.isTrackSaved,
+            );
+          },
         ),
         ChangeNotifierProvider(create: (_) => ThemeProvider(settingsBox)),
       ],
@@ -113,10 +125,12 @@ class _MusicBayAppState extends State<MusicBayApp> {
       scaffoldBackgroundColor: background,
       canvasColor: surface,
       useMaterial3: true,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
+      appBarTheme: AppBarTheme(
+        backgroundColor: background,
         elevation: 0,
-        scrolledUnderElevation: 0,
+        scrolledUnderElevation: 4,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: colorScheme.shadow.withValues(alpha: 0.15),
         centerTitle: false,
       ),
       cardTheme: CardThemeData(

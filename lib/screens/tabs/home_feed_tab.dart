@@ -40,6 +40,11 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
       ...vk.myTracks,
     ]).take(50).toList(growable: false);
 
+    final cachedKeys = <String>{
+      for (final t in forToday)
+        if (cache.isTrackCached(t.id, ownerId: t.ownerId)) '${t.ownerId}_${t.id}',
+    };
+
     final generatedAlbums = _buildGeneratedAlbums(
       [...vk.myTracks, ...vk.recommendations],
       _albumSeed,
@@ -207,7 +212,9 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                     isPlaying:
                         audio.currentTrack?.id == artistTracks[i].id &&
                         audio.currentTrack?.ownerId == artistTracks[i].ownerId,
-                    isCached: cache.isTrackCached(artistTracks[i].id, ownerId: artistTracks[i].ownerId),
+                    isCached: cachedKeys.contains(
+                      '${artistTracks[i].ownerId}_${artistTracks[i].id}',
+                    ),
                     trailing: _buildAddToLibraryButton(context, artistTracks[i]),
                     onTap: () => audio.playPauseTrack(
                       artistTracks[i],
@@ -227,7 +234,9 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                   isPlaying:
                       audio.currentTrack?.id == forToday[i].id &&
                       audio.currentTrack?.ownerId == forToday[i].ownerId,
-                  isCached: cache.isTrackCached(forToday[i].id, ownerId: forToday[i].ownerId),
+                  isCached: cachedKeys.contains(
+                    '${forToday[i].ownerId}_${forToday[i].id}',
+                  ),
                   trailing: _buildAddToLibraryButton(context, forToday[i]),
                   onTap: () =>
                       audio.playPauseTrack(forToday[i], forToday, startIndex: i),

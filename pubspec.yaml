@@ -30,7 +30,6 @@ dependencies:
 
   # UI
   cached_network_image: ^3.3.1
-  shimmer: ^3.0.0
 
   # Auth
   webview_flutter: ^4.10.0

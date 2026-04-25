@@ -20,6 +20,8 @@ class TrackTile extends StatelessWidget {
     this.isCached = false,
   });
 
+  static const Widget _placeholderIcon = Icon(Icons.music_note, size: 24);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -42,9 +44,9 @@ class TrackTile extends StatelessWidget {
             track: track,
             width: 48,
             height: 48,
-            placeholder: Container(
+            placeholder: ColoredBox(
               color: theme.colorScheme.surfaceContainerHighest,
-              child: const Icon(Icons.music_note, size: 24),
+              child: _placeholderIcon,
             ),
           ),
         ),

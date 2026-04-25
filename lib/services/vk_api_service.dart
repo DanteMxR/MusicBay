@@ -1,4 +1,3 @@
-import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/track.dart';
@@ -7,17 +6,30 @@ import '../models/playlist.dart';
 class VkApiService {
   static const String _authUrl = 'https://oauth.vk.com/token';
   static const String _apiUrl = 'https://api.vk.com/method';
-  static const String _apiVersion = '5.131';
+  static const String apiVersion = '5.131';
 
-  // Kate Mobile credentials
-  static const int _appId = 2685278;
-  static const String _appSecret = 'lxhD8OD7dMsqtXIm5IUY';
+  static const int appId = int.fromEnvironment(
+    'VK_APP_ID',
+    defaultValue: 2685278,
+  );
+  static const String _appSecret = String.fromEnvironment('VK_APP_SECRET');
 
-  static const String _userAgent =
+  static const String userAgent =
       'KateMobileAndroid/91.1 lite-523 (Android 12; SDK 31; arm64-v8a; en)';
 
-  final Dio _dio = Dio(BaseOptions(headers: {'User-Agent': _userAgent}));
+  final Dio _dio = Dio(
+    BaseOptions(
+      headers: {'User-Agent': userAgent},
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 30),
+      sendTimeout: const Duration(seconds: 30),
+    ),
+  );
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
+
+  void close() {
+    _dio.close(force: true);
+  }
 
   String? _token;
   int? _userId;
@@ -33,20 +45,29 @@ class VkApiService {
 
   bool get isAuthorized => _token != null && _userId != null;
 
+  void _ensurePasswordAuthCredentialsConfigured() {
+    if (_appSecret.isEmpty) {
+      throw StateError(
+        'VK_APP_SECRET is not configured. Pass it via --dart-define=VK_APP_SECRET=...',
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> login(
     String username,
     String password, {
     String? captchaSid,
     String? captchaKey,
   }) async {
+    _ensurePasswordAuthCredentialsConfigured();
     try {
       final params = <String, dynamic>{
         'grant_type': 'password',
-        'client_id': _appId,
+        'client_id': appId,
         'client_secret': _appSecret,
         'username': username,
         'password': password,
-        'v': _apiVersion,
+        'v': apiVersion,
         '2fa_supported': 1,
       };
       if (captchaSid != null && captchaKey != null) {
@@ -62,9 +83,7 @@ class VkApiService {
           validateStatus: (_) => true,
         ),
       );
-
       final data = response.data;
-      developer.log('VK auth response: $data', name: 'VkApi');
 
       if (data['access_token'] != null) {
         _token = data['access_token'];
@@ -104,16 +123,17 @@ class VkApiService {
     String password,
     String code,
   ) async {
+    _ensurePasswordAuthCredentialsConfigured();
     try {
       final response = await _dio.post(
         _authUrl,
         queryParameters: {
           'grant_type': 'password',
-          'client_id': _appId,
+          'client_id': appId,
           'client_secret': _appSecret,
           'username': username,
           'password': password,
-          'v': _apiVersion,
+          'v': apiVersion,
           '2fa_supported': 1,
           'code': code,
         },
@@ -161,7 +181,7 @@ class VkApiService {
 
     final response = await _dio.get(
       '$_apiUrl/$method',
-      queryParameters: {...params, 'access_token': _token, 'v': _apiVersion},
+      queryParameters: {...params, 'access_token': _token, 'v': apiVersion},
     );
 
     if (response.data['error'] != null) {

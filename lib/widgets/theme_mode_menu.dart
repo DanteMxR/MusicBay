@@ -28,7 +28,6 @@ class ThemeModeMenuButton extends StatelessWidget {
       case ThemeMode.dark:
         return Icons.dark_mode_rounded;
       case ThemeMode.system:
-      default:
         return brightness == Brightness.dark
           ? Icons.dark_mode_outlined
           : Icons.light_mode_outlined;
