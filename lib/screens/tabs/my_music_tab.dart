@@ -20,6 +20,7 @@ class MyMusicTab extends StatefulWidget {
 class _MyMusicTabState extends State<MyMusicTab> {
   _MyMusicFilter _filter = _MyMusicFilter.all;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   Timer? _searchDebounce;
   String _searchQuery = '';
   bool _isSearchMode = false;
@@ -30,6 +31,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
   void dispose() {
     _searchDebounce?.cancel();
     _cancelSearchPrefetch();
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -57,6 +59,24 @@ class _MyMusicTabState extends State<MyMusicTab> {
     if (!shouldLoad) return;
 
     vk.loadMyTracks();
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _handleFilterTap(_MyMusicFilter filter) {
+    if (_filter != filter) {
+      setState(() => _filter = filter);
+      return;
+    }
+
+    _scrollToTop();
   }
 
   @override
@@ -253,14 +273,14 @@ class _MyMusicTabState extends State<MyMusicTab> {
                                 label: const Text('Все'),
                                 selected: _filter == _MyMusicFilter.all,
                                 onSelected: (_) =>
-                                    setState(() => _filter = _MyMusicFilter.all),
+                                    _handleFilterTap(_MyMusicFilter.all),
                               ),
                               ChoiceChip(
                                 label: const Text('Скачанные'),
                                 selected:
                                     _filter == _MyMusicFilter.downloaded,
-                                onSelected: (_) => setState(
-                                  () => _filter = _MyMusicFilter.downloaded,
+                                onSelected: (_) => _handleFilterTap(
+                                  _MyMusicFilter.downloaded,
                                 ),
                               ),
                               if (!isOffline && allTracks.isNotEmpty)
@@ -331,6 +351,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
               return false;
             },
             child: ListView.builder(
+              controller: _scrollController,
               itemCount: visibleTracks.length + (vk.myTracksLoading ? 1 : 0),
               itemBuilder: (context, index) {
                 if (index >= visibleTracks.length) {
