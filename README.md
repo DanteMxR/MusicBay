@@ -110,6 +110,16 @@ flutter build apk --release --split-per-abi
 
 Исходник лежит в `assets/icon/app_icon.png`, иконки генерируются из него:
 
+![Иконка MusicBay](assets/icon/app_icon.png)
+
 ```bash
 dart run flutter_launcher_icons
 ```
+
+## Скриншоты
+
+<p align="center">
+  <img src="assets/screenshots/home_feed.png" width="30%" />
+  <img src="assets/screenshots/my_music.png" width="30%" />
+  <img src="assets/screenshots/playlists.png" width="30%" />
+</p>
