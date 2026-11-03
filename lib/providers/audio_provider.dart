@@ -6,22 +6,34 @@ import '../models/track.dart';
 import '../services/audio_player_service.dart';
 import '../services/cache_service.dart';
 
-typedef IsTrackSavedCallback = bool Function(int trackId, {int? ownerId});
+typedef IsTrackSavedCallback = bool Function(String trackId);
+typedef FreshenTracksCallback =
+    Future<List<Track>> Function(List<Track> tracks, int startIndex);
+typedef ReportPlayCallback = Future<void> Function(String trackId);
 
 class AudioProvider extends ChangeNotifier {
   final AudioPlayerService _audioService;
   final CacheService _cacheService;
   final IsTrackSavedCallback _isTrackSaved;
+  final FreshenTracksCallback _freshenTracks;
+  final ReportPlayCallback _reportPlay;
+  String? _lastReportedTrackId;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   bool _autoCachingTrack = false;
   String? _lastAutoCacheTrackKey;
   Duration? _lastObservedPosition;
   DateTime? _lastObservedAt;
   DateTime? _lastRecoveryAt;
-  int? _lastRecoveredTrackId;
+  String? _lastRecoveredTrackId;
   bool _disposed = false;
 
-  AudioProvider(this._audioService, this._cacheService, this._isTrackSaved) {
+  AudioProvider(
+    this._audioService,
+    this._cacheService,
+    this._isTrackSaved,
+    this._freshenTracks,
+    this._reportPlay,
+  ) {
     _subscriptions.add(
       _audioService.currentIndexStream.listen((_) {
         _safeNotifyListeners();
@@ -32,6 +44,7 @@ class AudioProvider extends ChangeNotifier {
     _subscriptions.add(
       _audioService.playerStateStream.listen((_) {
         _safeNotifyListeners();
+        _reportPlayOfCurrentTrack();
         unawaited(_cacheCurrentTrackIfNeeded());
       }),
     );
@@ -56,7 +69,7 @@ class AudioProvider extends ChangeNotifier {
   }
 
   Track _resolveTrackWithCache(Track track) {
-    final cachedPath = _cacheService.getCachedPath(track.id, ownerId: track.ownerId);
+    final cachedPath = _cacheService.getCachedPath(track.id);
     if (cachedPath != null) return track.copyWithUrl(cachedPath);
     return track;
   }
@@ -92,9 +105,7 @@ class AudioProvider extends ChangeNotifier {
       );
 
       if (resolvedIndex < 0) {
-        debugPrint(
-          'playPauseTrack: unable to resolve index for ${track.ownerId}_${track.id}',
-        );
+        debugPrint('playPauseTrack: unable to resolve index for ${track.id}');
         return;
       }
       await playPlaylist(playable, startIndex: resolvedIndex);
@@ -106,7 +117,8 @@ class AudioProvider extends ChangeNotifier {
   Stream<PlayerState> get playerStateStream => _audioService.playerStateStream;
 
   Future<void> playPlaylist(List<Track> tracks, {int startIndex = 0}) async {
-    final resolved = _resolveTracksWithCache(tracks);
+    final fresh = await _freshenTracks(tracks, startIndex);
+    final resolved = _resolveTracksWithCache(fresh);
     final playableTracks = resolved
         .where((t) => t.url.trim().isNotEmpty)
         .toList(growable: false);
@@ -177,16 +189,11 @@ class AudioProvider extends ChangeNotifier {
     if (byExactTrack >= 0) return byExactTrack;
 
     byExactTrack = playable.indexWhere(
-      (t) =>
-          t.id == track.id &&
-          t.ownerId == track.ownerId &&
-          t.url == track.url,
+      (t) => t.id == track.id && t.url == track.url,
     );
     if (byExactTrack >= 0) return byExactTrack;
 
-    byExactTrack = playable.indexWhere(
-      (t) => t.id == track.id && t.ownerId == track.ownerId,
-    );
+    byExactTrack = playable.indexWhere((t) => t.id == track.id);
     if (byExactTrack >= 0) return byExactTrack;
 
     byExactTrack = playable.indexWhere(
@@ -198,30 +205,7 @@ class AudioProvider extends ChangeNotifier {
     return byExactTrack;
   }
 
-  bool _isSameTrack(Track a, Track b) {
-    final aHasIdentity = a.id > 0 && a.ownerId != 0;
-    final bHasIdentity = b.id > 0 && b.ownerId != 0;
-    if (aHasIdentity && bHasIdentity) {
-      if (a.id != b.id || a.ownerId != b.ownerId) return false;
-
-      final aUrl = a.url.trim();
-      final bUrl = b.url.trim();
-      if (aUrl.isNotEmpty && bUrl.isNotEmpty && aUrl != bUrl) {
-        return false;
-      }
-      return true;
-    }
-
-    final aUrl = a.url.trim();
-    final bUrl = b.url.trim();
-    if (aUrl.isNotEmpty && bUrl.isNotEmpty) {
-      return aUrl == bUrl;
-    }
-
-    return a.artist == b.artist &&
-        a.title == b.title &&
-        a.duration == b.duration;
-  }
+  bool _isSameTrack(Track a, Track b) => a.id == b.id;
 
   bool _isSamePlaylist(List<Track> tracks) {
     final current = _audioService.tracks;
@@ -229,9 +213,7 @@ class AudioProvider extends ChangeNotifier {
     if (current.any((t) => _isLocalPath(t.url))) return false;
     if (current.length != tracks.length) return false;
     for (var i = 0; i < current.length; i++) {
-      if (current[i].id != tracks[i].id ||
-          current[i].ownerId != tracks[i].ownerId ||
-          current[i].url != tracks[i].url) {
+      if (current[i].id != tracks[i].id || current[i].url != tracks[i].url) {
         return false;
       }
     }
@@ -281,13 +263,20 @@ class AudioProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _reportPlayOfCurrentTrack() {
+    final track = currentTrack;
+    if (track == null || !isPlaying || _lastReportedTrackId == track.id) return;
+    _lastReportedTrackId = track.id;
+    unawaited(_reportPlay(track.id));
+  }
+
   Future<void> _cacheCurrentTrackIfNeeded() async {
     final track = currentTrack;
     if (track == null) return;
     final trackKey = _trackKey(track);
     if (!isPlaying) return;
-    if (!_isTrackSaved(track.id, ownerId: track.ownerId)) return;
-    if (_cacheService.isTrackCached(track.id, ownerId: track.ownerId)) return;
+    if (!_isTrackSaved(track.id)) return;
+    if (_cacheService.isTrackCached(track.id)) return;
     if (_lastAutoCacheTrackKey == trackKey) return;
     if (_autoCachingTrack) return;
 
@@ -345,7 +334,7 @@ class AudioProvider extends ChangeNotifier {
     await _audioService.recoverDecoderGlitch();
   }
 
-  String _trackKey(Track track) => '${track.ownerId}_${track.id}';
+  String _trackKey(Track track) => track.id;
 
   void _safeNotifyListeners() {
     if (_disposed) return;

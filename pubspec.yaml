@@ -1,5 +1,5 @@
 name: musicbay
-description: "VK Music Player"
+description: "Music player for a MusicBay server"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -31,8 +31,9 @@ dependencies:
   # UI
   cached_network_image: ^3.3.1
 
-  # Auth
-  webview_flutter: ^4.10.0
+  # Uploads
+  file_picker: ^10.3.3
+  crypto: ^3.0.6
 
   # Utils
   permission_handler: ^11.3.0

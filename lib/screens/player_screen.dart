@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/audio_provider.dart';
-import '../providers/vk_provider.dart';
+import '../widgets/track_dialogs.dart';
+import '../providers/music_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/cache_service.dart';
 import 'artist_search_screen.dart';
@@ -13,7 +14,7 @@ class PlayerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final audio = context.watch<AudioProvider>();
-    final vk = context.watch<VkProvider>();
+    final music = context.watch<MusicProvider>();
     final track = audio.currentTrack;
     final theme = Theme.of(context);
 
@@ -24,7 +25,8 @@ class PlayerScreen extends StatelessWidget {
       );
     }
 
-    final isSaved = vk.isTrackSaved(track.id, ownerId: track.ownerId);
+    final isSaved = music.isTrackSaved(track.id);
+    final isLiked = music.isTrackLiked(track.id);
 
     return Scaffold(
       appBar: AppBar(
@@ -35,6 +37,12 @@ class PlayerScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          IconButton(
+            icon: Icon(isLiked ? Icons.favorite : Icons.favorite_border),
+            tooltip: isLiked ? 'Убрать лайк' : 'Лайк',
+            onPressed: () =>
+                runAndReport(context, () => music.toggleLike(track)),
+          ),
           IconButton(
             icon: Icon(
               isSaved
@@ -234,7 +242,7 @@ class PlayerScreen extends StatelessWidget {
     final track = audio.currentTrack;
     if (track == null) return;
 
-    if (cache.isTrackCached(track.id, ownerId: track.ownerId)) {
+    if (cache.isTrackCached(track.id)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Трек уже загружен')));
@@ -257,11 +265,11 @@ class PlayerScreen extends StatelessWidget {
 
   void _toggleCurrentTrackSaved(BuildContext context) async {
     final audio = context.read<AudioProvider>();
-    final vk = context.read<VkProvider>();
+    final music = context.read<MusicProvider>();
     final track = audio.currentTrack;
     if (track == null) return;
 
-    final added = await vk.toggleSavedTrack(track);
+    final added = await music.toggleSavedTrack(track);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -278,9 +286,7 @@ class PlayerScreen extends StatelessWidget {
     if (query.isEmpty) return;
 
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ArtistSearchScreen(artist: query),
-      ),
+      MaterialPageRoute(builder: (_) => ArtistSearchScreen(artist: query)),
     );
   }
 }

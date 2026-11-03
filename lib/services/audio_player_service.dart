@@ -165,10 +165,7 @@ class MusicAudioHandler extends BaseAudioHandler
     // because _player.pause() above can trigger currentIndexStream listener
     // which overwrites _currentIndex with the OLD playlist's index.
     _currentIndex = targetIndex;
-    await _player.setAudioSources(
-      _playlistSources,
-      initialIndex: targetIndex,
-    );
+    await _player.setAudioSources(_playlistSources, initialIndex: targetIndex);
     await _player.setLoopMode(_mapLoopMode(_repeatMode));
     await _player.setShuffleModeEnabled(_shuffle);
     if (_shuffle) {

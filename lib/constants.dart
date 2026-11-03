@@ -4,3 +4,4 @@ const int kPlaybackGlitchLargeJumpMs = 8000;
 const int kDefaultCacheBatchSize = 200;
 const Duration kArtistAlbumsCacheTtl = Duration(hours: 12);
 const int kLibraryIndexBatchSize = 200;
+const String kAppVersion = '1.0.0';

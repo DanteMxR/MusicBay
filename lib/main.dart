@@ -4,14 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'services/vk_api_service.dart';
+import 'services/api_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/cache_service.dart';
 import 'services/library_index_service.dart';
-import 'providers/vk_provider.dart';
+import 'providers/music_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/login_screen.dart';
+import 'screens/update_required_screen.dart';
+import 'models/track.dart';
 import 'screens/home_screen.dart';
 
 Future<void> main() async {
@@ -19,10 +21,12 @@ Future<void> main() async {
 
   await Hive.initFlutter();
 
-  final vkApi = VkApiService();
-  await vkApi.init();
+  final api = ApiService(SecureSessionStore());
+  await api.init();
 
   final settingsBox = await Hive.openBox('settings');
+  Track.preferredQuality =
+      settingsBox.get('stream_quality', defaultValue: 'normal') as String;
 
   final cacheService = CacheService();
   await cacheService.init();
@@ -37,7 +41,7 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-          create: (_) => VkProvider(vkApi, libraryIndexService)..bootstrap(),
+          create: (_) => MusicProvider(api, libraryIndexService)..bootstrap(),
         ),
         Provider<LibraryIndexService>.value(value: libraryIndexService),
         Provider<CacheService>.value(value: cacheService),
@@ -49,11 +53,13 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(
           create: (context) {
-            final vk = context.read<VkProvider>();
+            final music = context.read<MusicProvider>();
             return AudioProvider(
               context.read<AudioPlayerService>(),
               context.read<CacheService>(),
-              vk.isTrackSaved,
+              music.isTrackSaved,
+              music.freshenTracks,
+              music.reportPlay,
             );
           },
         ),
@@ -102,8 +108,7 @@ class _MusicBayAppState extends State<MusicBayApp> {
     final background = isDark ? _darkBackground : _lightBackground;
     final surface = isDark ? _darkSurface : _lightSurface;
     final surfaceHigh = isDark ? _darkSurfaceHigh : _lightSurfaceHigh;
-    final surfaceHighest =
-        isDark ? _darkSurfaceHighest : _lightSurfaceHighest;
+    final surfaceHighest = isDark ? _darkSurfaceHighest : _lightSurfaceHighest;
 
     final colorScheme =
         ColorScheme.fromSeed(
@@ -186,9 +191,7 @@ class _MusicBayAppState extends State<MusicBayApp> {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: surfaceHigh,
         contentTextStyle: TextStyle(color: colorScheme.onSurface),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         behavior: SnackBarBehavior.floating,
       ),
       sliderTheme: SliderThemeData(
@@ -230,9 +233,10 @@ class _MusicBayAppState extends State<MusicBayApp> {
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeMode,
-      home: Consumer<VkProvider>(
-        builder: (context, vk, _) {
-          return vk.isAuthorized ? const HomeScreen() : const LoginScreen();
+      home: Consumer<MusicProvider>(
+        builder: (context, music, _) {
+          if (music.clientOutdated) return const UpdateRequiredScreen();
+          return music.isAuthorized ? const HomeScreen() : const LoginScreen();
         },
       ),
     );

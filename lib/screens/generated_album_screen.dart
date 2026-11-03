@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../providers/audio_provider.dart';
-import '../providers/vk_provider.dart';
+import '../providers/music_provider.dart';
 import '../services/cache_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/track_tile.dart';
@@ -56,27 +56,30 @@ class GeneratedAlbumScreen extends StatelessWidget {
                 }
 
                 final track = tracks[index - 1];
-                final isPlaying =
-                    audio.currentTrack?.id == track.id &&
-                    audio.currentTrack?.ownerId == track.ownerId;
+                final isPlaying = audio.currentTrack?.id == track.id;
 
                 return TrackTile(
                   track: track,
                   isPlaying: isPlaying,
-                  isCached: cache.isTrackCached(track.id, ownerId: track.ownerId),
+                  isCached: cache.isTrackCached(track.id),
                   trailing: _buildAddToLibraryButton(context, track),
-                  onTap: () =>
-                      audio.playPauseTrack(track, tracks, startIndex: index - 1),
+                  onTap: () => audio.playPauseTrack(
+                    track,
+                    tracks,
+                    startIndex: index - 1,
+                  ),
                 );
               },
             ),
-      bottomNavigationBar: audio.currentTrack != null ? const MiniPlayer() : null,
+      bottomNavigationBar: audio.currentTrack != null
+          ? const MiniPlayer()
+          : null,
     );
   }
 
   Widget _buildAddToLibraryButton(BuildContext context, Track track) {
-    final vk = context.read<VkProvider>();
-    final isSaved = vk.isTrackSaved(track.id, ownerId: track.ownerId);
+    final music = context.read<MusicProvider>();
+    final isSaved = music.isTrackSaved(track.id);
 
     return IconButton(
       tooltip: isSaved ? 'Уже в коллекции' : 'Добавить в коллекцию',
@@ -85,7 +88,7 @@ class GeneratedAlbumScreen extends StatelessWidget {
       ),
       onPressed: () async {
         final messenger = ScaffoldMessenger.of(context);
-        final added = await vk.toggleSavedTrack(track);
+        final added = await music.toggleSavedTrack(track);
         messenger.showSnackBar(
           SnackBar(
             content: Text(
@@ -97,4 +100,3 @@ class GeneratedAlbumScreen extends StatelessWidget {
     );
   }
 }
-

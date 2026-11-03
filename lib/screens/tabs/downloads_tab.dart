@@ -90,9 +90,8 @@ class _DownloadsTabState extends State<DownloadsTab> {
                         Text(
                           'Зажмите трек и выберите "Скачать"',
                           style: TextStyle(
-                            color: theme.colorScheme.onSurfaceVariant.withValues(
-                              alpha: 0.8,
-                            ),
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.8),
                           ),
                         ),
                       ],
@@ -109,7 +108,11 @@ class _DownloadsTabState extends State<DownloadsTab> {
                         isPlaying: isPlaying,
                         isCached: true,
                         onTap: () {
-                          audio.playPauseTrack(track, _cachedTracks, startIndex: index);
+                          audio.playPauseTrack(
+                            track,
+                            _cachedTracks,
+                            startIndex: index,
+                          );
                         },
                         onLongPress: () => _showDeleteDialog(track),
                         trailing: Icon(
@@ -138,10 +141,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
               title: const Text('Удалить из загрузок'),
               onTap: () async {
                 Navigator.pop(ctx);
-                await context.read<CacheService>().removeFromCache(
-                  track.id,
-                  ownerId: track.ownerId,
-                );
+                await context.read<CacheService>().removeFromCache(track.id);
                 _loadCached();
               },
             ),

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../constants.dart';
 import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
-import '../../providers/vk_provider.dart';
+import '../../providers/music_provider.dart';
 import '../../services/cache_service.dart';
 import '../../widgets/track_tile.dart';
 
@@ -39,11 +39,11 @@ class _SearchTabState extends State<SearchTab> {
   void _onSearchChanged(String query) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 450), () {
-      final vk = context.read<VkProvider>();
+      final music = context.read<MusicProvider>();
       if (widget.artistOnly) {
-        vk.searchArtistTracks(query);
+        music.searchArtistTracks(query);
       } else {
-        vk.searchAudio(query);
+        music.searchAudio(query);
       }
     });
   }
@@ -63,24 +63,24 @@ class _SearchTabState extends State<SearchTab> {
     _searchController.text = initial;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final vk = context.read<VkProvider>();
+      final music = context.read<MusicProvider>();
       if (widget.artistOnly) {
-        vk.searchArtistTracks(initial);
+        music.searchArtistTracks(initial);
       } else {
-        vk.searchAudio(initial);
+        music.searchAudio(initial);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final vk = context.watch<VkProvider>();
+    final music = context.watch<MusicProvider>();
     final audio = context.watch<AudioProvider>();
 
     if (widget.showScaffold) {
       return Scaffold(
         appBar: AppBar(title: _buildSearchField(context)),
-        body: _buildBody(vk, audio),
+        body: _buildBody(music, audio),
       );
     }
 
@@ -92,7 +92,7 @@ class _SearchTabState extends State<SearchTab> {
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: _buildSearchField(context),
           ),
-          Expanded(child: _buildBody(vk, audio)),
+          Expanded(child: _buildBody(music, audio)),
         ],
       ),
     );
@@ -114,23 +114,23 @@ class _SearchTabState extends State<SearchTab> {
     );
   }
 
-  Widget _buildBody(VkProvider vk, AudioProvider audio) {
-    if (vk.searchQuery.isEmpty) {
+  Widget _buildBody(MusicProvider music, AudioProvider audio) {
+    if (music.searchQuery.isEmpty) {
       return RefreshIndicator(
         onRefresh: () async {
-          await vk.loadRecommendations(refresh: true);
-          await vk.loadNewReleases(refresh: true);
-          await vk.loadPlaylists();
+          await music.loadRecommendations(refresh: true);
+          await music.loadNewReleases(refresh: true);
+          await music.loadPlaylists();
         },
-        child: _buildSuggestions(vk, audio),
+        child: _buildSuggestions(music, audio),
       );
     }
 
-    if (vk.searchLoading && vk.searchResults.isEmpty) {
+    if (music.searchLoading && music.searchResults.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (vk.searchError != null && vk.searchResults.isEmpty) {
+    if (music.searchError != null && music.searchResults.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -142,9 +142,9 @@ class _SearchTabState extends State<SearchTab> {
             FilledButton(
               onPressed: () {
                 if (widget.artistOnly) {
-                  vk.searchArtistTracks(vk.searchQuery);
+                  music.searchArtistTracks(music.searchQuery);
                 } else {
-                  vk.searchAudio(vk.searchQuery);
+                  music.searchAudio(music.searchQuery);
                 }
               },
               child: const Text('Повторить'),
@@ -154,14 +154,14 @@ class _SearchTabState extends State<SearchTab> {
       );
     }
 
-    if (vk.searchResults.isEmpty) {
+    if (music.searchResults.isEmpty) {
       return const Center(child: Text('Ничего не найдено'));
     }
 
     final cache = context.read<CacheService>();
     final cachedKeys = <String>{
-      for (final t in vk.searchResults)
-        if (cache.isTrackCached(t.id, ownerId: t.ownerId)) '${t.ownerId}_${t.id}',
+      for (final t in music.searchResults)
+        if (cache.isTrackCached(t.id)) t.id,
     };
 
     return NotificationListener<ScrollNotification>(
@@ -169,23 +169,26 @@ class _SearchTabState extends State<SearchTab> {
         if (notification.metrics.pixels >
             notification.metrics.maxScrollExtent -
                 kSearchPaginationThresholdPx) {
-          vk.loadMoreSearch();
+          music.loadMoreSearch();
         }
         return false;
       },
       child: ListView.builder(
-        itemCount: vk.searchResults.length,
+        itemCount: music.searchResults.length,
         itemBuilder: (_, index) {
-          final track = vk.searchResults[index];
+          final track = music.searchResults[index];
           final isPlaying = audio.isPlayingTrack(track);
 
           return TrackTile(
             track: track,
             isPlaying: isPlaying,
-            isCached: cachedKeys.contains('${track.ownerId}_${track.id}'),
+            isCached: cachedKeys.contains(track.id),
             trailing: _buildAddToLibraryButton(track),
-            onTap: () =>
-                audio.playPauseTrack(track, vk.searchResults, startIndex: index),
+            onTap: () => audio.playPauseTrack(
+              track,
+              music.searchResults,
+              startIndex: index,
+            ),
             onLongPress: () => _showAddDialog(track),
           );
         },
@@ -193,40 +196,36 @@ class _SearchTabState extends State<SearchTab> {
     );
   }
 
-  Widget _buildSuggestions(VkProvider vk, AudioProvider audio) {
+  Widget _buildSuggestions(MusicProvider music, AudioProvider audio) {
     final theme = Theme.of(context);
 
-    if (vk.recommendationsLoading &&
-        vk.newReleasesLoading &&
-        vk.recommendations.isEmpty &&
-        vk.newTracks.isEmpty) {
+    if (music.recommendationsLoading &&
+        music.newReleasesLoading &&
+        music.recommendations.isEmpty &&
+        music.newTracks.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
     final cache = context.read<CacheService>();
-    final newTracksLimit = vk.newTracks.length < 20 ? vk.newTracks.length : 20;
-    final recsLimit =
-        vk.recommendations.length < 30 ? vk.recommendations.length : 30;
+    final newTracksLimit = music.newTracks.length < 20
+        ? music.newTracks.length
+        : 20;
+    final recsLimit = music.recommendations.length < 30
+        ? music.recommendations.length
+        : 30;
     final cachedKeys = <String>{
       for (var i = 0; i < newTracksLimit; i++)
-        if (cache.isTrackCached(
-          vk.newTracks[i].id,
-          ownerId: vk.newTracks[i].ownerId,
-        ))
-          '${vk.newTracks[i].ownerId}_${vk.newTracks[i].id}',
+        if (cache.isTrackCached(music.newTracks[i].id)) music.newTracks[i].id,
       for (var i = 0; i < recsLimit; i++)
-        if (cache.isTrackCached(
-          vk.recommendations[i].id,
-          ownerId: vk.recommendations[i].ownerId,
-        ))
-          '${vk.recommendations[i].ownerId}_${vk.recommendations[i].id}',
+        if (cache.isTrackCached(music.recommendations[i].id))
+          music.recommendations[i].id,
     };
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        if (vk.newTracks.isNotEmpty) ...[
+        if (music.newTracks.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Text(
@@ -238,25 +237,23 @@ class _SearchTabState extends State<SearchTab> {
           ),
           for (var i = 0; i < newTracksLimit; i++)
             TrackTile(
-              track: vk.newTracks[i],
-              isPlaying: audio.isPlayingTrack(vk.newTracks[i]),
-              isCached: cachedKeys.contains(
-                '${vk.newTracks[i].ownerId}_${vk.newTracks[i].id}',
-              ),
-              trailing: _buildAddToLibraryButton(vk.newTracks[i]),
+              track: music.newTracks[i],
+              isPlaying: audio.isPlayingTrack(music.newTracks[i]),
+              isCached: cachedKeys.contains(music.newTracks[i].id),
+              trailing: _buildAddToLibraryButton(music.newTracks[i]),
               onTap: () => audio.playPauseTrack(
-                vk.newTracks[i],
-                vk.newTracks,
+                music.newTracks[i],
+                music.newTracks,
                 startIndex: i,
               ),
-              onLongPress: () => _showAddDialog(vk.newTracks[i]),
+              onLongPress: () => _showAddDialog(music.newTracks[i]),
             ),
         ],
-        if (vk.recommendations.isNotEmpty) ...[
+        if (music.recommendations.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
             child: Text(
-              'Рекомендации для тебя',
+              'Из твоей медиатеки',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -264,24 +261,24 @@ class _SearchTabState extends State<SearchTab> {
           ),
           for (var i = 0; i < recsLimit; i++)
             TrackTile(
-              track: vk.recommendations[i],
-              isPlaying: audio.isPlayingTrack(vk.recommendations[i]),
-              isCached: cachedKeys.contains(
-                '${vk.recommendations[i].ownerId}_${vk.recommendations[i].id}',
-              ),
-              trailing: _buildAddToLibraryButton(vk.recommendations[i]),
+              track: music.recommendations[i],
+              isPlaying: audio.isPlayingTrack(music.recommendations[i]),
+              isCached: cachedKeys.contains(music.recommendations[i].id),
+              trailing: _buildAddToLibraryButton(music.recommendations[i]),
               onTap: () => audio.playPauseTrack(
-                vk.recommendations[i],
-                vk.recommendations,
+                music.recommendations[i],
+                music.recommendations,
                 startIndex: i,
               ),
-              onLongPress: () => _showAddDialog(vk.recommendations[i]),
+              onLongPress: () => _showAddDialog(music.recommendations[i]),
             ),
         ],
-        if (vk.recommendations.isEmpty && vk.newTracks.isEmpty)
+        if (music.recommendations.isEmpty && music.newTracks.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
-            child: Center(child: Text('Пока нет рекомендаций')),
+            child: Center(
+              child: Text('Пока пусто. Загрузи музыку на вкладке «Моя музыка»'),
+            ),
           ),
       ],
     );
@@ -299,7 +296,7 @@ class _SearchTabState extends State<SearchTab> {
               title: const Text('Добавить в мою музыку'),
               onTap: () async {
                 Navigator.pop(ctx);
-                await context.read<VkProvider>().addTrack(track);
+                await context.read<MusicProvider>().addTrack(track);
                 if (!mounted) return;
                 ScaffoldMessenger.of(
                   context,
@@ -322,13 +319,13 @@ class _SearchTabState extends State<SearchTab> {
 
   Future<void> _showPlaylistPicker(Track track) async {
     final rootContext = context;
-    final vk = rootContext.read<VkProvider>();
-    if (vk.playlists.isEmpty) {
-      await vk.loadPlaylists();
+    final music = rootContext.read<MusicProvider>();
+    if (music.playlists.isEmpty) {
+      await music.loadPlaylists();
     }
     if (!mounted) return;
 
-    if (vk.playlists.isEmpty) {
+    if (music.playlists.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Плейлисты не найдены')));
@@ -341,9 +338,9 @@ class _SearchTabState extends State<SearchTab> {
         child: SizedBox(
           height: 360,
           child: ListView.builder(
-            itemCount: vk.playlists.length,
+            itemCount: music.playlists.length,
             itemBuilder: (_, index) {
-              final playlist = vk.playlists[index];
+              final playlist = music.playlists[index];
               return ListTile(
                 leading: const Icon(Icons.queue_music),
                 title: Text(
@@ -354,10 +351,10 @@ class _SearchTabState extends State<SearchTab> {
                 subtitle: Text('${playlist.count} треков'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  final vkProvider = rootContext.read<VkProvider>();
+                  final musicProvider = rootContext.read<MusicProvider>();
                   final messenger = ScaffoldMessenger.of(rootContext);
                   try {
-                    await vkProvider.addTrackToPlaylist(track, playlist);
+                    await musicProvider.addTrackToPlaylist(track, playlist);
                     if (!mounted) return;
                     messenger.showSnackBar(
                       SnackBar(
@@ -380,8 +377,8 @@ class _SearchTabState extends State<SearchTab> {
   }
 
   Widget _buildAddToLibraryButton(Track track) {
-    final vk = context.watch<VkProvider>();
-    final isSaved = vk.isTrackSaved(track.id, ownerId: track.ownerId);
+    final music = context.watch<MusicProvider>();
+    final isSaved = music.isTrackSaved(track.id);
 
     return IconButton(
       tooltip: isSaved ? 'Уже в коллекции' : 'Добавить в коллекцию',
@@ -389,14 +386,14 @@ class _SearchTabState extends State<SearchTab> {
         isSaved ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
       ),
       onPressed: () async {
-        final added = await context.read<VkProvider>().toggleSavedTrack(track);
+        final added = await context.read<MusicProvider>().toggleSavedTrack(
+          track,
+        );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              added
-                  ? 'Трек добавлен в коллекцию'
-                  : 'Трек удален из коллекции',
+              added ? 'Трек добавлен в коллекцию' : 'Трек удален из коллекции',
             ),
           ),
         );

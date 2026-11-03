@@ -1,31 +1,63 @@
 class Track {
-  final int id;
-  final int ownerId;
+  /// The quality to play, from the settings. A track without it gets the closest one it has.
+  static String preferredQuality = 'normal';
+
+  static const List<String> qualities = ['low', 'normal', 'lossless'];
+
+  final String id;
   final String artist;
+  final String? artistId;
   final String title;
   final int duration;
-  final String url;
+  final Map<String, String> streams;
+  final String _localPath;
   final String? albumThumb;
-  final int? albumId;
-  final int? albumOwnerId;
+  final String? albumId;
   final String? albumTitle;
-  final bool isExplicit;
+  final String status;
+  final String? error;
+  final String visibility;
+  final int plays;
+  final bool liked;
+  final bool inLibrary;
 
   Track({
     required this.id,
-    required this.ownerId,
     required this.artist,
+    this.artistId,
     required this.title,
     required this.duration,
-    required this.url,
+    this.streams = const {},
+    String localPath = '',
     this.albumThumb,
     this.albumId,
-    this.albumOwnerId,
     this.albumTitle,
-    this.isExplicit = false,
-  });
+    this.status = 'ready',
+    this.error,
+    this.visibility = 'private',
+    this.plays = 0,
+    this.liked = false,
+    this.inLibrary = false,
+  }) : _localPath = localPath;
 
-  String get accessKey => '${ownerId}_$id';
+  String get accessKey => id;
+
+  /// A file on the device if it has one, otherwise a stream of the preferred quality.
+  String get url {
+    if (_localPath.isNotEmpty) return _localPath;
+    final order = [
+      preferredQuality,
+      ...qualities.where((q) => q != preferredQuality),
+    ];
+    for (final quality in order) {
+      final link = streams[quality];
+      if (link != null && link.isNotEmpty) return link;
+    }
+    return '';
+  }
+
+  bool get isProcessing => status == 'pending' || status == 'processing';
+  bool get isFailed => status == 'failed';
 
   String get durationFormatted {
     final min = duration ~/ 60;
@@ -33,203 +65,106 @@ class Track {
     return '$min:${sec.toString().padLeft(2, '0')}';
   }
 
+  /// A link to a stream is signed and expires, and tracks kept on disk outlive it.
+  bool get isLinkStale {
+    final link = url;
+    if (!link.startsWith('http')) return false;
+    final expires = int.tryParse(
+      Uri.tryParse(link)?.queryParameters['exp'] ?? '',
+    );
+    if (expires == null) return false;
+    final margin = DateTime.now().add(const Duration(minutes: 10));
+    return DateTime.fromMillisecondsSinceEpoch(expires * 1000).isBefore(margin);
+  }
+
   factory Track.fromJson(Map<String, dynamic> json) {
-    final thumb = _extractThumb(json);
-
-    // Extract album info - VK API can return it in different formats
-    int? albumId;
-    int? albumOwnerId;
-    String? albumTitle;
-    
-    // Try standard album object
-    if (json['album'] != null) {
-      albumId = json['album']['id'];
-      albumOwnerId = json['album']['owner_id'];
-      albumTitle = json['album']['title'];
-    }
-    
-    // Also check for direct fields (some API endpoints return them this way)
-    albumId ??= json['album_id'];
-    albumOwnerId ??= json['album_owner_id'];
-    albumTitle ??= json['album_title'];
-
+    final artist = json['artist'] as Map?;
+    final album = json['album'] as Map?;
+    final streams = <String, String>{};
+    (json['streams'] as Map?)?.forEach((quality, stream) {
+      final link = (stream as Map?)?['url'] as String?;
+      if (link != null) streams[quality as String] = link;
+    });
     return Track(
-      id: json['id'] ?? 0,
-      ownerId: json['owner_id'] ?? 0,
-      artist: json['artist'] ?? 'Unknown',
-      title: json['title'] ?? 'Unknown',
-      duration: json['duration'] ?? 0,
-      url: json['url'] ?? '',
-      albumThumb: thumb,
-      albumId: albumId,
-      albumOwnerId: albumOwnerId,
-      albumTitle: albumTitle,
-      isExplicit: json['is_explicit'] == true,
+      id: json['id'] as String,
+      artist: artist?['name'] as String? ?? 'Неизвестный артист',
+      artistId: artist?['id'] as String?,
+      title: json['title'] as String? ?? 'Без названия',
+      duration: ((json['duration_ms'] as num?)?.toInt() ?? 0) ~/ 1000,
+      streams: streams,
+      albumThumb: _pickCover(json['covers'] as Map?),
+      albumId: album?['id'] as String?,
+      albumTitle: album?['name'] as String?,
+      status: json['status'] as String? ?? 'pending',
+      error: json['error'] as String?,
+      visibility: json['visibility'] as String? ?? 'private',
+      plays: (json['plays'] as num?)?.toInt() ?? 0,
+      liked: json['liked'] == true,
+      inLibrary: json['in_library'] == true,
     );
   }
 
-  static String? _extractThumb(Map<String, dynamic> json) {
-    final candidates = <dynamic>[
-      json['album'],
-      json['album']?['thumb'],
-      json['album']?['photo'],
-      json['track_covers'],
-      json['thumb'],
-      json['photo'],
-      json['cover_url'],
-      json['artwork_url'],
-      json['main_artists'],
-    ];
-
-    for (final candidate in candidates) {
-      final extracted = _extractImageFromDynamic(candidate);
-      if (extracted != null && extracted.isNotEmpty) {
-        return extracted;
-      }
+  static String? _pickCover(Map? covers) {
+    if (covers == null) return null;
+    for (final size in const ['600', '300', '128']) {
+      final url = covers[size] as String?;
+      if (url != null && url.isNotEmpty) return url;
     }
-
     return null;
   }
 
-  static String? _extractImageFromDynamic(dynamic value) {
-    if (value == null) return null;
-
-    if (value is String) {
-      final normalized = _normalizeImageUrl(value);
-      if (normalized != null) {
-        return normalized;
-      }
-      return null;
-    }
-
-    if (value is List) {
-      for (final item in value) {
-        final extracted = _extractImageFromDynamic(item);
-        if (extracted != null) return extracted;
-      }
-      return null;
-    }
-
-    if (value is Map) {
-      const preferredKeys = [
-        'photo_1200',
-        'photo_800',
-        'photo_600',
-        'photo_500',
-        'photo_300',
-        'photo_270',
-        'photo_200',
-        'photo_135',
-        'photo_68',
-        'url',
-        'cover_url',
-        'artwork_url',
-      ];
-
-      for (final key in preferredKeys) {
-        final extracted = _extractImageFromDynamic(value[key]);
-        if (extracted != null) return extracted;
-      }
-
-      for (final entry in value.entries) {
-        final key = entry.key.toString().toLowerCase();
-        if (key.contains('photo') ||
-            key.contains('thumb') ||
-            key.contains('cover') ||
-            key.contains('image') ||
-            key.contains('artwork')) {
-          final extracted = _extractImageFromDynamic(entry.value);
-          if (extracted != null) return extracted;
-        }
-      }
-
-      for (final nested in value.values) {
-        final extracted = _extractImageFromDynamic(nested);
-        if (extracted != null) return extracted;
-      }
-    }
-
-    return null;
-  }
-
-  static String? _normalizeImageUrl(String raw) {
-    var value = raw.trim();
-    if (value.isEmpty) return null;
-
-    value = value.replaceAll(r'\/', '/');
-    if (value.startsWith('//')) {
-      value = 'https:$value';
-    }
-    if (value.startsWith('http://')) {
-      value = 'https://${value.substring(7)}';
-    }
-
-    final lower = value.toLowerCase();
-    if (!lower.startsWith('https://')) return null;
-    if (_looksLikeNonImage(lower)) return null;
-    return value;
-  }
-
-  static bool _looksLikeNonImage(String lowerUrl) {
-    const nonImageExt = [
-      '.mp3',
-      '.m4a',
-      '.aac',
-      '.ogg',
-      '.wav',
-      '.flac',
-      '.opus',
-      '.webm',
-      '.mp4',
-      '.mkv',
-      '.m3u8',
-    ];
-    final path = Uri.tryParse(lowerUrl)?.path ?? lowerUrl;
-    for (final ext in nonImageExt) {
-      if (path.endsWith(ext)) return true;
-    }
-    return false;
-  }
-
-  Track copyWithUrl(String newUrl) => Track(
+  Track copyWithUrl(String localPath) => Track(
     id: id,
-    ownerId: ownerId,
     artist: artist,
+    artistId: artistId,
     title: title,
     duration: duration,
-    url: newUrl,
+    streams: streams,
+    localPath: localPath,
     albumThumb: albumThumb,
     albumId: albumId,
-    albumOwnerId: albumOwnerId,
     albumTitle: albumTitle,
-    isExplicit: isExplicit,
+    status: status,
+    error: error,
+    visibility: visibility,
+    plays: plays,
+    liked: liked,
+    inLibrary: inLibrary,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
-    'owner_id': ownerId,
     'artist': artist,
+    'artist_id': artistId,
     'title': title,
     'duration': duration,
-    'url': url,
+    'streams': streams,
     'album_thumb': albumThumb,
     'album_id': albumId,
-    'album_owner_id': albumOwnerId,
     'album_title': albumTitle,
-    'is_explicit': isExplicit,
+    'status': status,
+    'error': error,
+    'visibility': visibility,
+    'plays': plays,
+    'liked': liked,
+    'in_library': inLibrary,
   };
 
   factory Track.fromCache(Map<String, dynamic> json) => Track(
     id: json['id'],
-    ownerId: json['owner_id'],
     artist: json['artist'],
+    artistId: json['artist_id'],
     title: json['title'],
     duration: json['duration'],
-    url: json['url'] ?? '',
+    streams: Map<String, String>.from((json['streams'] as Map?) ?? const {}),
     albumThumb: json['album_thumb'],
     albumId: json['album_id'],
-    albumOwnerId: json['album_owner_id'],
     albumTitle: json['album_title'],
-    isExplicit: json['is_explicit'] ?? false,
+    status: json['status'] ?? 'ready',
+    error: json['error'],
+    visibility: json['visibility'] ?? 'private',
+    plays: json['plays'] ?? 0,
+    liked: json['liked'] ?? false,
+    inLibrary: json['in_library'] ?? false,
   );
 }

@@ -22,6 +22,12 @@ class TrackTile extends StatelessWidget {
 
   static const Widget _placeholderIcon = Icon(Icons.music_note, size: 24);
 
+  String get _unavailableReason {
+    if (track.isProcessing) return 'Сервер ещё обрабатывает трек';
+    if (track.isFailed) return 'Сервер не смог обработать файл';
+    return 'Нет в сети';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -65,7 +71,7 @@ class TrackTile extends StatelessWidget {
         ),
       ),
       subtitle: Text(
-        isUnavailable ? '${track.artist} • Недоступно в регионе' : track.artist,
+        isUnavailable ? '${track.artist} • $_unavailableReason' : track.artist,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
@@ -86,13 +92,9 @@ class TrackTile extends StatelessWidget {
           ),
       onTap: () {
         if (isUnavailable) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Этот трек недоступен в вашем регионе или через текущий источник',
-              ),
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_unavailableReason)));
           return;
         }
         onTap();

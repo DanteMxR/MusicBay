@@ -4,9 +4,12 @@ import 'package:provider/provider.dart';
 import '../../constants.dart';
 import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
-import '../../providers/vk_provider.dart';
+import '../../providers/music_provider.dart';
 import '../../services/cache_service.dart';
 import '../../widgets/track_tile.dart';
+import '../../widgets/upload_button.dart';
+import '../../widgets/track_dialogs.dart';
+import '../account_screen.dart';
 
 enum _MyMusicFilter { all, downloaded }
 
@@ -37,28 +40,28 @@ class _MyMusicTabState extends State<MyMusicTab> {
   }
 
   void _cancelSearchPrefetch() {
-    context.read<VkProvider>().cancelMyTracksSearchPrefetch();
+    context.read<MusicProvider>().cancelMyTracksSearchPrefetch();
   }
 
   void _scheduleSearchIndexSync(String normalizedQuery) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
       if (!mounted || normalizedQuery.isEmpty) return;
-      context.read<VkProvider>().ensureMyTracksLoadedForSearch();
+      context.read<MusicProvider>().ensureMyTracksLoadedForSearch();
     });
   }
 
-  void _prefetchMyTracks(VkProvider vk, {ScrollMetrics? metrics}) {
+  void _prefetchMyTracks(MusicProvider music, {ScrollMetrics? metrics}) {
     if (_filter != _MyMusicFilter.all) return;
     if (_searchQuery.isNotEmpty) return;
-    if (vk.myTracksLoading || !vk.myTracksHasMore) return;
-    if (vk.myTracksError != null) return;
+    if (music.myTracksLoading || !music.myTracksHasMore) return;
+    if (music.myTracksError != null) return;
 
     final shouldLoad =
         metrics == null || metrics.extentAfter < kMyTracksPrefetchExtentPx;
     if (!shouldLoad) return;
 
-    vk.loadMyTracks();
+    music.loadMyTracks();
   }
 
   Future<void> _scrollToTop() async {
@@ -81,7 +84,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
 
   @override
   Widget build(BuildContext context) {
-    final vk = context.watch<VkProvider>();
+    final music = context.watch<MusicProvider>();
     final audio = context.watch<AudioProvider>();
 
     return Scaffold(
@@ -107,6 +110,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
               )
             : const Text('Моя музыка'),
         actions: [
+          const UploadButton(),
           IconButton(
             icon: Icon(_isSearchMode ? Icons.close : Icons.search),
             onPressed: () {
@@ -124,40 +128,47 @@ class _MyMusicTabState extends State<MyMusicTab> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => _showLogoutDialog(context),
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Аккаунт',
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const AccountScreen())),
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => vk.loadMyTracks(refresh: true),
-        child: _buildBody(context, vk, audio),
+        onRefresh: () => music.loadMyTracks(refresh: true),
+        child: _buildBody(context, music, audio),
       ),
     );
   }
 
-  Widget _buildBody(BuildContext context, VkProvider vk, AudioProvider audio) {
+  Widget _buildBody(
+    BuildContext context,
+    MusicProvider music,
+    AudioProvider audio,
+  ) {
     if (!_prefetchScheduled &&
         _filter == _MyMusicFilter.all &&
         _searchQuery.isEmpty &&
-        !vk.myTracksLoading &&
-        vk.myTracksHasMore &&
-        vk.myTracksError == null &&
-        vk.myTracks.length < 120) {
+        !music.myTracksLoading &&
+        music.myTracksHasMore &&
+        music.myTracksError == null &&
+        music.myTracks.length < 120) {
       _prefetchScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _prefetchScheduled = false;
         if (!mounted) return;
-        _prefetchMyTracks(context.read<VkProvider>());
+        _prefetchMyTracks(context.read<MusicProvider>());
       });
     }
 
-    if (vk.myTracksLoading && vk.myTracks.isEmpty) {
+    if (music.myTracksLoading && music.myTracks.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
     final cache = context.read<CacheService>();
-    final isOffline = vk.myTracksError != null && vk.myTracks.isEmpty;
+    final isOffline = music.myTracksError != null && music.myTracks.isEmpty;
     final List<Track> allTracks;
 
     if (isOffline) {
@@ -179,7 +190,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () => vk.loadMyTracks(refresh: true),
+                onPressed: () => music.loadMyTracks(refresh: true),
                 child: const Text('Повторить'),
               ),
             ],
@@ -187,39 +198,37 @@ class _MyMusicTabState extends State<MyMusicTab> {
         );
       }
       allTracks = cachedTracks;
-    } else if (vk.myTracks.isEmpty) {
+    } else if (music.myTracks.isEmpty) {
       return const Center(child: Text('Нет треков'));
     } else {
-      allTracks = vk.myTracks;
+      allTracks = music.myTracks;
     }
 
     final theme = Theme.of(context);
     final cachedKeys = <String>{
       for (final track in allTracks)
-        if (cache.isTrackCached(track.id, ownerId: track.ownerId))
-          '${track.ownerId}_${track.id}',
+        if (cache.isTrackCached(track.id)) track.id,
     };
 
     final filteredByType = _filter == _MyMusicFilter.all
         ? allTracks
         : allTracks
-              .where((t) => cachedKeys.contains('${t.ownerId}_${t.id}'))
+              .where((t) => cachedKeys.contains(t.id))
               .toList(growable: false);
 
     final visibleTracks = _searchQuery.isEmpty
         ? filteredByType
         : _filter == _MyMusicFilter.downloaded || isOffline
         ? _filterTracks(filteredByType, _searchQuery)
-        : vk.searchMyTracksLocally(_searchQuery);
+        : music.searchMyTracksLocally(_searchQuery);
 
     final visibleCachedKeys = <String>{
       for (final track in visibleTracks)
-        if (cache.isTrackCached(track.id, ownerId: track.ownerId))
-          '${track.ownerId}_${track.id}',
+        if (cache.isTrackCached(track.id)) track.id,
     };
 
     final isIndexingLibrary =
-        _searchQuery.isNotEmpty && !isOffline && vk.myTracksIndexSyncing;
+        _searchQuery.isNotEmpty && !isOffline && music.myTracksIndexSyncing;
 
     return Column(
       children: [
@@ -252,14 +261,15 @@ class _MyMusicTabState extends State<MyMusicTab> {
                                       'Нет сети. Показаны скачанные треки',
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
-                                            color: theme.colorScheme
+                                            color: theme
+                                                .colorScheme
                                                 .onSurfaceVariant,
                                           ),
                                     ),
                                   ),
                                   TextButton(
                                     onPressed: () =>
-                                        vk.loadMyTracks(refresh: true),
+                                        music.loadMyTracks(refresh: true),
                                     child: const Text('Повторить'),
                                   ),
                                 ],
@@ -277,11 +287,9 @@ class _MyMusicTabState extends State<MyMusicTab> {
                               ),
                               ChoiceChip(
                                 label: const Text('Скачанные'),
-                                selected:
-                                    _filter == _MyMusicFilter.downloaded,
-                                onSelected: (_) => _handleFilterTap(
-                                  _MyMusicFilter.downloaded,
-                                ),
+                                selected: _filter == _MyMusicFilter.downloaded,
+                                onSelected: (_) =>
+                                    _handleFilterTap(_MyMusicFilter.downloaded),
                               ),
                               if (!isOffline && allTracks.isNotEmpty)
                                 ActionChip(
@@ -291,7 +299,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
                                   ),
                                   label: const Text('Скачать оффлайн'),
                                   onPressed: () =>
-                                      _showOfflineCacheOptions(context, vk),
+                                      _showOfflineCacheOptions(context, music),
                                 ),
                               if (cachedKeys.isNotEmpty)
                                 ActionChip(
@@ -344,15 +352,15 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 } else if (delta < -4 && !_chipsVisible) {
                   setState(() => _chipsVisible = true);
                 }
-                _prefetchMyTracks(vk, metrics: notification.metrics);
+                _prefetchMyTracks(music, metrics: notification.metrics);
               } else if (notification is UserScrollNotification) {
-                _prefetchMyTracks(vk, metrics: notification.metrics);
+                _prefetchMyTracks(music, metrics: notification.metrics);
               }
               return false;
             },
             child: ListView.builder(
               controller: _scrollController,
-              itemCount: visibleTracks.length + (vk.myTracksLoading ? 1 : 0),
+              itemCount: visibleTracks.length + (music.myTracksLoading ? 1 : 0),
               itemBuilder: (context, index) {
                 if (index >= visibleTracks.length) {
                   return const Padding(
@@ -362,12 +370,8 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 }
 
                 final track = visibleTracks[index];
-                final isPlaying =
-                    audio.currentTrack?.id == track.id &&
-                    audio.currentTrack?.ownerId == track.ownerId;
-                final isCached = visibleCachedKeys.contains(
-                  '${track.ownerId}_${track.id}',
-                );
+                final isPlaying = audio.currentTrack?.id == track.id;
+                final isCached = visibleCachedKeys.contains(track.id);
 
                 return TrackTile(
                   track: track,
@@ -397,7 +401,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
                     visibleTracks,
                     startIndex: index,
                   ),
-                  onLongPress: () => _showTrackMenu(context, track, vk),
+                  onLongPress: () => _showTrackMenu(context, track, music),
                 );
               },
             ),
@@ -408,25 +412,29 @@ class _MyMusicTabState extends State<MyMusicTab> {
   }
 
   List<Track> _filterTracks(List<Track> tracks, String query) {
-    return tracks.where((track) {
-      final artist = track.artist.toLowerCase();
-      final title = track.title.toLowerCase();
-      final album = (track.albumTitle ?? '').toLowerCase();
-      return artist.contains(query) ||
-          title.contains(query) ||
-          album.contains(query);
-    }).toList(growable: false);
+    return tracks
+        .where((track) {
+          final artist = track.artist.toLowerCase();
+          final title = track.title.toLowerCase();
+          final album = (track.albumTitle ?? '').toLowerCase();
+          return artist.contains(query) ||
+              title.contains(query) ||
+              album.contains(query);
+        })
+        .toList(growable: false);
   }
 
-  List<Track> _offlineSourceTracks(VkProvider vk) {
-    final source = vk.myTracksIndex.isNotEmpty ? vk.myTracksIndex : vk.myTracks;
-    return source.where((track) => track.url.trim().isNotEmpty).toList(
-      growable: false,
-    );
+  List<Track> _offlineSourceTracks(MusicProvider music) {
+    final source = music.myTracksIndex.isNotEmpty
+        ? music.myTracksIndex
+        : music.myTracks;
+    return source
+        .where((track) => track.url.trim().isNotEmpty)
+        .toList(growable: false);
   }
 
-  void _showOfflineCacheOptions(BuildContext context, VkProvider vk) {
-    final source = _offlineSourceTracks(vk);
+  void _showOfflineCacheOptions(BuildContext context, MusicProvider music) {
+    final source = _offlineSourceTracks(music);
     if (source.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -457,7 +465,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
               ),
               onTap: () async {
                 Navigator.pop(ctx);
-                await _cacheFirstTracks(context, vk, 50);
+                await _cacheFirstTracks(context, music, 50);
               },
             ),
             ListTile(
@@ -468,7 +476,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
               ),
               onTap: () async {
                 Navigator.pop(ctx);
-                await _cacheFirstTracks(context, vk, 100);
+                await _cacheFirstTracks(context, music, 100);
               },
             ),
           ],
@@ -479,19 +487,17 @@ class _MyMusicTabState extends State<MyMusicTab> {
 
   Future<void> _cacheFirstTracks(
     BuildContext context,
-    VkProvider vk,
+    MusicProvider music,
     int count,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final cache = context.read<CacheService>();
-    final source = _offlineSourceTracks(vk);
+    final source = _offlineSourceTracks(music);
     final tracksToCache = source.take(count).toList(growable: false);
 
     if (tracksToCache.isEmpty) {
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Нет треков, доступных для оффлайн-кэша'),
-        ),
+        const SnackBar(content: Text('Нет треков, доступных для оффлайн-кэша')),
       );
       return;
     }
@@ -520,9 +526,9 @@ class _MyMusicTabState extends State<MyMusicTab> {
     );
   }
 
-  void _showTrackMenu(BuildContext context, Track track, VkProvider vk) {
+  void _showTrackMenu(BuildContext context, Track track, MusicProvider music) {
     final cache = context.read<CacheService>();
-    final isCached = cache.isTrackCached(track.id, ownerId: track.ownerId);
+    final isCached = cache.isTrackCached(track.id);
 
     showModalBottomSheet(
       context: context,
@@ -530,12 +536,13 @@ class _MyMusicTabState extends State<MyMusicTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ...ownTrackActions(ctx, track),
             ListTile(
               leading: const Icon(Icons.delete_outline),
-              title: const Text('Удалить из моей музыки'),
+              title: const Text('Убрать из медиатеки'),
               onTap: () async {
                 Navigator.pop(ctx);
-                await vk.deleteTrack(track);
+                await music.deleteTrack(track);
               },
             ),
             if (isCached)
@@ -544,7 +551,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
                 title: const Text('Удалить скачанный трек (кэш)'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await cache.removeFromCache(track.id, ownerId: track.ownerId);
+                  await cache.removeFromCache(track.id);
                   if (!context.mounted) return;
                   setState(() {});
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -563,9 +570,7 @@ class _MyMusicTabState extends State<MyMusicTab> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Очистить кэш'),
-        content: const Text(
-          'Удалить все скачанные треки с устройства?',
-        ),
+        content: const Text('Удалить все скачанные треки с устройства?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -577,34 +582,11 @@ class _MyMusicTabState extends State<MyMusicTab> {
               await context.read<CacheService>().clearCache();
               if (!context.mounted) return;
               setState(() {});
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Кэш очищен')),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('Кэш очищен')));
             },
             child: const Text('Очистить'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Выход'),
-        content: const Text('Выйти из аккаунта VK?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              context.read<VkProvider>().logout();
-            },
-            child: const Text('Выйти'),
           ),
         ],
       ),

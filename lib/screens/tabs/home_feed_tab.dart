@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/track.dart';
 import '../../providers/audio_provider.dart';
-import '../../providers/vk_provider.dart';
+import '../../providers/music_provider.dart';
 import '../../screens/generated_album_screen.dart';
 import '../../services/cache_service.dart';
 import '../../widgets/artwork_image.dart';
@@ -24,31 +24,32 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
 
   @override
   Widget build(BuildContext context) {
-    final vk = context.watch<VkProvider>();
+    final music = context.watch<MusicProvider>();
     final audio = context.watch<AudioProvider>();
     final cache = context.read<CacheService>();
     final theme = Theme.of(context);
 
-    final dailyMix =
-        _uniqueTracks(vk.dailyMix.isNotEmpty ? vk.dailyMix : vk.recommendations);
-    final freshTracks = _uniqueTracks(vk.newTracks);
+    final dailyMix = _uniqueTracks(
+      music.dailyMix.isNotEmpty ? music.dailyMix : music.recommendations,
+    );
+    final freshTracks = _uniqueTracks(music.newTracks);
     final allForArtists = _uniqueTracks([...dailyMix, ...freshTracks]);
     final forToday = _uniqueTracks([
       ...dailyMix,
-      ...vk.recommendations,
+      ...music.recommendations,
       ...freshTracks,
-      ...vk.myTracks,
+      ...music.myTracks,
     ]).take(50).toList(growable: false);
 
     final cachedKeys = <String>{
       for (final t in forToday)
-        if (cache.isTrackCached(t.id, ownerId: t.ownerId)) '${t.ownerId}_${t.id}',
+        if (cache.isTrackCached(t.id)) t.id,
     };
 
-    final generatedAlbums = _buildGeneratedAlbums(
-      [...vk.myTracks, ...vk.recommendations],
-      _albumSeed,
-    );
+    final generatedAlbums = _buildGeneratedAlbums([
+      ...music.myTracks,
+      ...music.recommendations,
+    ], _albumSeed);
 
     final artistMap = <String, List<Track>>{};
     for (final track in allForArtists) {
@@ -65,7 +66,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
         actions: const [ThemeModeMenuButton()],
       ),
       body: RefreshIndicator(
-        onRefresh: () => vk.loadDiscovery(refresh: true),
+        onRefresh: () => music.loadDiscovery(refresh: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 24),
@@ -81,8 +82,9 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: OutlinedButton.icon(
-                    onPressed: () =>
-                        setState(() => _albumSeed = DateTime.now().millisecondsSinceEpoch),
+                    onPressed: () => setState(
+                      () => _albumSeed = DateTime.now().millisecondsSinceEpoch,
+                    ),
                     icon: const Icon(Icons.shuffle),
                     label: const Text('Пересобрать'),
                   ),
@@ -124,8 +126,13 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                                   width: 150,
                                   height: 150,
                                   placeholder: Container(
-                                    color: theme.colorScheme.surfaceContainerHighest,
-                                    child: const Icon(Icons.album_outlined, size: 30),
+                                    color: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                    child: const Icon(
+                                      Icons.album_outlined,
+                                      size: 30,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -158,7 +165,8 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
             if (dailyMix.isNotEmpty) ...[
               _SectionTitle(
                 title: 'Микс дня',
-                subtitle: 'Собрано из рекомендаций, трендов и любимых артистов',
+                subtitle:
+                    'Собрано из твоей медиатеки и публичных треков твоих артистов',
               ),
               SizedBox(
                 height: 210,
@@ -197,8 +205,9 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                       selected: _selectedArtist == artist,
                       onSelected: (_) {
                         setState(() {
-                          _selectedArtist =
-                              _selectedArtist == artist ? null : artist;
+                          _selectedArtist = _selectedArtist == artist
+                              ? null
+                              : artist;
                         });
                       },
                     );
@@ -209,13 +218,12 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
                 for (var i = 0; i < artistTracks.length && i < 8; i++)
                   TrackTile(
                     track: artistTracks[i],
-                    isPlaying:
-                        audio.currentTrack?.id == artistTracks[i].id &&
-                        audio.currentTrack?.ownerId == artistTracks[i].ownerId,
-                    isCached: cachedKeys.contains(
-                      '${artistTracks[i].ownerId}_${artistTracks[i].id}',
+                    isPlaying: audio.currentTrack?.id == artistTracks[i].id,
+                    isCached: cachedKeys.contains(artistTracks[i].id),
+                    trailing: _buildAddToLibraryButton(
+                      context,
+                      artistTracks[i],
                     ),
-                    trailing: _buildAddToLibraryButton(context, artistTracks[i]),
                     onTap: () => audio.playPauseTrack(
                       artistTracks[i],
                       artistTracks,
@@ -231,26 +239,31 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
               for (var i = 0; i < forToday.length; i++)
                 TrackTile(
                   track: forToday[i],
-                  isPlaying:
-                      audio.currentTrack?.id == forToday[i].id &&
-                      audio.currentTrack?.ownerId == forToday[i].ownerId,
-                  isCached: cachedKeys.contains(
-                    '${forToday[i].ownerId}_${forToday[i].id}',
-                  ),
+                  isPlaying: audio.currentTrack?.id == forToday[i].id,
+                  isCached: cachedKeys.contains(forToday[i].id),
                   trailing: _buildAddToLibraryButton(context, forToday[i]),
-                  onTap: () =>
-                      audio.playPauseTrack(forToday[i], forToday, startIndex: i),
+                  onTap: () => audio.playPauseTrack(
+                    forToday[i],
+                    forToday,
+                    startIndex: i,
+                  ),
                 ),
             ],
-            if (vk.discoveryLoading && dailyMix.isEmpty)
+            if (music.discoveryLoading && dailyMix.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 40),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (!vk.discoveryLoading && dailyMix.isEmpty && freshTracks.isEmpty)
+            if (!music.discoveryLoading &&
+                dailyMix.isEmpty &&
+                freshTracks.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: Text('Пока нет рекомендаций')),
+                child: Center(
+                  child: Text(
+                    'Пока пусто. Загрузи музыку на вкладке «Моя музыка»',
+                  ),
+                ),
               ),
           ],
         ),
@@ -259,7 +272,9 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
   }
 
   List<_GeneratedAlbum> _buildGeneratedAlbums(List<Track> rawTracks, int seed) {
-    final tracks = _uniqueTracks(rawTracks).where((t) => t.url.isNotEmpty).toList();
+    final tracks = _uniqueTracks(
+      rawTracks,
+    ).where((t) => t.url.isNotEmpty).toList();
     if (tracks.length < 6) return const [];
 
     final result = <_GeneratedAlbum>[];
@@ -291,7 +306,8 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
 
     for (final entry in artistEntries) {
       if (entry.value.length < 3) continue;
-      final list = List<Track>.from(entry.value)..shuffle(Random(seed ^ entry.key.hashCode));
+      final list = List<Track>.from(entry.value)
+        ..shuffle(Random(seed ^ entry.key.hashCode));
       result.add(
         _GeneratedAlbum(
           title: 'Подборка: ${entry.key}',
@@ -348,14 +364,14 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
   List<Track> _uniqueTracks(List<Track> tracks) {
     final byKey = <String, Track>{};
     for (final track in tracks) {
-      byKey['${track.ownerId}_${track.id}'] = track;
+      byKey[track.id] = track;
     }
     return byKey.values.toList(growable: false);
   }
 
   Widget _buildAddToLibraryButton(BuildContext context, Track track) {
-    final vk = context.read<VkProvider>();
-    final isSaved = vk.isTrackSaved(track.id, ownerId: track.ownerId);
+    final music = context.read<MusicProvider>();
+    final isSaved = music.isTrackSaved(track.id);
 
     return IconButton(
       tooltip: isSaved ? 'Уже в коллекции' : 'Добавить в коллекцию',
@@ -364,7 +380,7 @@ class _HomeFeedTabState extends State<HomeFeedTab> {
       ),
       onPressed: () async {
         final messenger = ScaffoldMessenger.of(context);
-        final added = await vk.toggleSavedTrack(track);
+        final added = await music.toggleSavedTrack(track);
         if (!mounted) return;
         messenger.showSnackBar(
           SnackBar(
@@ -479,4 +495,3 @@ class _MixTrackCard extends StatelessWidget {
     );
   }
 }
-

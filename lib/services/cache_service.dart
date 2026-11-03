@@ -7,7 +7,7 @@ import '../constants.dart';
 import '../models/track.dart';
 
 class CacheService {
-  static const String _boxName = 'cached_tracks';
+  static const String _boxName = 'server_tracks';
   late Box<Map> _box;
   final Dio _dio = Dio(
     BaseOptions(
@@ -22,12 +22,12 @@ class CacheService {
     _box = await Hive.openBox<Map>(_boxName);
   }
 
-  bool isTrackCached(int trackId, {int? ownerId}) {
-    return getCachedPath(trackId, ownerId: ownerId) != null;
+  bool isTrackCached(String trackId) {
+    return getCachedPath(trackId) != null;
   }
 
-  String? getCachedPath(int trackId, {int? ownerId}) {
-    final data = _getEntry(trackId, ownerId: ownerId);
+  String? getCachedPath(String trackId) {
+    final data = _box.get(trackId);
     if (data == null) return null;
 
     final path = data['path'] as String?;
@@ -44,9 +44,8 @@ class CacheService {
       }
     }
 
-    final key = _entryKey(trackId, ownerId: ownerId);
-    if (_box.containsKey(key)) {
-      _box.delete(key);
+    if (_box.containsKey(trackId)) {
+      _box.delete(trackId);
     }
     return null;
   }
@@ -57,8 +56,8 @@ class CacheService {
   }) async {
     if (track.url.isEmpty) return null;
 
-    final key = _entryKey(track.id, ownerId: track.ownerId);
-    final existingPath = getCachedPath(track.id, ownerId: track.ownerId);
+    final key = track.id;
+    final existingPath = getCachedPath(track.id);
     if (existingPath != null) return existingPath;
 
     final running = _activeDownloads[key];
@@ -87,7 +86,7 @@ class CacheService {
       if (!cacheDir.existsSync()) cacheDir.createSync(recursive: true);
 
       final ext = _inferAudioExtension(track.url);
-      final filePath = '${cacheDir.path}/${track.ownerId}_${track.id}$ext';
+      final filePath = '${cacheDir.path}/${track.id}$ext';
 
       await _dio.download(
         track.url,
@@ -99,7 +98,7 @@ class CacheService {
         },
       );
 
-      await _box.put(_entryKey(track.id, ownerId: track.ownerId), {
+      await _box.put(track.id, {
         ...track.toJson(),
         'path': filePath,
         'size_bytes': File(filePath).lengthSync(),
@@ -143,12 +142,12 @@ class CacheService {
     var cachedNow = 0;
     final unique = <String, Track>{};
     for (final track in tracks) {
-      unique[_entryKey(track.id, ownerId: track.ownerId)] = track;
+      unique[track.id] = track;
     }
 
     for (final track in unique.values) {
       if (maxToDownload <= 0) break;
-      if (isTrackCached(track.id, ownerId: track.ownerId)) continue;
+      if (isTrackCached(track.id)) continue;
       final path = await cacheTrack(track);
       if (path != null) {
         cachedNow++;
@@ -158,17 +157,15 @@ class CacheService {
     return cachedNow;
   }
 
-  Future<void> removeFromCache(int trackId, {int? ownerId}) async {
-    final key = _entryKey(trackId, ownerId: ownerId);
-    final data = _box.get(key) ?? _getLegacyEntry(trackId, ownerId: ownerId);
+  Future<void> removeFromCache(String trackId) async {
+    final data = _box.get(trackId);
     if (data != null) {
       final path = data['path'] as String?;
       if (path != null) {
         final file = File(path);
         if (file.existsSync()) file.deleteSync();
       }
-      await _box.delete(key);
-      await _box.delete(trackId.toString());
+      await _box.delete(trackId);
     }
   }
 
@@ -205,26 +202,5 @@ class CacheService {
       }
     }
     await _box.clear();
-  }
-
-  String _entryKey(int trackId, {int? ownerId}) {
-    if (ownerId == null) return trackId.toString();
-    return '${ownerId}_$trackId';
-  }
-
-  Map? _getEntry(int trackId, {int? ownerId}) {
-    final key = _entryKey(trackId, ownerId: ownerId);
-    final direct = _box.get(key);
-    if (direct != null) return direct;
-    return _getLegacyEntry(trackId, ownerId: ownerId);
-  }
-
-  Map? _getLegacyEntry(int trackId, {int? ownerId}) {
-    final legacy = _box.get(trackId.toString());
-    if (legacy == null) return null;
-    if (ownerId == null) return legacy;
-    final legacyOwnerId = (legacy['owner_id'] as num?)?.toInt();
-    if (legacyOwnerId == ownerId) return legacy;
-    return null;
   }
 }

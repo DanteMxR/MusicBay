@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/vk_provider.dart';
+import '../providers/music_provider.dart';
 import '../providers/audio_provider.dart';
 import '../widgets/mini_player.dart';
 import 'tabs/home_feed_tab.dart';
@@ -29,10 +29,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final vk = context.read<VkProvider>();
-      vk.loadMyTracks(refresh: true);
-      vk.loadPlaylists();
-      vk.loadDiscovery(refresh: true);
+      final music = context.read<MusicProvider>();
+      music.loadMyTracks(refresh: true);
+      music.loadPlaylists();
+      music.loadDiscovery(refresh: true);
     });
   }
 
@@ -45,10 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           Expanded(
-            child: IndexedStack(
-              index: currentTab,
-              children: _tabs,
-            ),
+            child: IndexedStack(index: currentTab, children: _tabs),
           ),
           if (audio.currentTrack != null) const MiniPlayer(),
         ],

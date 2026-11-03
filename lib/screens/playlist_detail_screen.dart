@@ -3,10 +3,11 @@ import 'package:provider/provider.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 import '../providers/audio_provider.dart';
-import '../providers/vk_provider.dart';
+import '../providers/music_provider.dart';
 import '../services/cache_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/track_tile.dart';
+import '../widgets/track_dialogs.dart';
 
 class PlaylistDetailScreen extends StatefulWidget {
   final Playlist playlist;
@@ -28,12 +29,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _loadTracks() async {
-    final vk = context.read<VkProvider>();
+    final music = context.read<MusicProvider>();
     try {
-      final tracks = await vk.loadPlaylistTracks(
-        widget.playlist.ownerId,
-        widget.playlist.id,
-      );
+      final tracks = await music.loadPlaylistTracks(widget.playlist);
       if (!mounted) return;
       setState(() {
         _tracks = tracks;
@@ -50,7 +48,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final audio = context.watch<AudioProvider>();
     final cache = context.read<CacheService>();
     final playableTracks = _tracks
-        .where((track) => track.url.isNotEmpty || cache.isTrackCached(track.id, ownerId: track.ownerId))
+        .where((track) => track.url.isNotEmpty || cache.isTrackCached(track.id))
         .toList(growable: false);
 
     return Scaffold(
@@ -79,11 +77,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               itemCount: _tracks.length,
               itemBuilder: (context, index) {
                 final track = _tracks[index];
-                final isPlaying =
-                    audio.currentTrack?.id == track.id &&
-                    audio.currentTrack?.ownerId == track.ownerId;
+                final isPlaying = audio.currentTrack?.id == track.id;
 
-                final trackCached = cache.isTrackCached(track.id, ownerId: track.ownerId);
+                final trackCached = cache.isTrackCached(track.id);
                 return TrackTile(
                   track: track,
                   isPlaying: isPlaying,
@@ -99,7 +95,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     }
 
                     final startIndex = playableTracks.indexWhere(
-                      (t) => t.id == track.id && t.ownerId == track.ownerId,
+                      (t) => t.id == track.id,
                     );
                     if (startIndex < 0) return;
 
@@ -109,6 +105,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       startIndex: startIndex,
                     );
                   },
+                  onLongPress: widget.playlist.isOwn
+                      ? () => _removeFromPlaylist(track)
+                      : null,
                   trailing: IconButton(
                     icon: const Icon(Icons.bookmark_add_outlined),
                     onPressed: () => _saveSingleTrack(track),
@@ -117,13 +116,34 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 );
               },
             ),
-      bottomNavigationBar: audio.currentTrack != null ? const MiniPlayer() : null,
+      bottomNavigationBar: audio.currentTrack != null
+          ? const MiniPlayer()
+          : null,
     );
   }
 
+  Future<void> _removeFromPlaylist(Track track) async {
+    final music = context.read<MusicProvider>();
+    final confirmed = await askConfirmation(
+      context,
+      title: 'Убрать из плейлиста',
+      message: 'Убрать «${track.title}» из плейлиста?',
+      action: 'Убрать',
+    );
+    if (!confirmed || !mounted) return;
+    await runAndReport(context, () async {
+      await music.removeTrackFromPlaylist(widget.playlist, track);
+      if (mounted) {
+        setState(
+          () => _tracks = _tracks.where((t) => t.id != track.id).toList(),
+        );
+      }
+    });
+  }
+
   Future<void> _saveSingleTrack(Track track) async {
-    final vk = context.read<VkProvider>();
-    await vk.addTrack(track);
+    final music = context.read<MusicProvider>();
+    await music.addTrack(track);
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -131,8 +151,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _saveAlbumToLibrary() async {
-    final vk = context.read<VkProvider>();
-    final added = await vk.saveTracksToMyLibrary(_tracks);
+    final music = context.read<MusicProvider>();
+    final added = await music.saveTracksToMyLibrary(_tracks);
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -149,4 +169,3 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     ).showSnackBar(SnackBar(content: Text('Скачано треков: $cached')));
   }
 }
-

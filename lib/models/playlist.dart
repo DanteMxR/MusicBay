@@ -1,46 +1,48 @@
+enum PlaylistKind {
+  /// A list made by the user, which they can change.
+  own,
+
+  /// An album of the catalog, made from the tags of tracks.
+  album,
+
+  /// The tracks the user likes.
+  liked,
+}
+
 class Playlist {
-  final int id;
-  final int ownerId;
+  final String id;
   final String title;
   final String? description;
   final String? photo;
   final int count;
-  final int createTime;
-  final int updateTime;
+  final String visibility;
+  final PlaylistKind kind;
 
   Playlist({
     required this.id,
-    required this.ownerId,
     required this.title,
     this.description,
     this.photo,
     required this.count,
-    required this.createTime,
-    required this.updateTime,
+    this.visibility = 'private',
+    this.kind = PlaylistKind.own,
   });
 
-  factory Playlist.fromJson(Map<String, dynamic> json) {
-    String? photo;
-    if (json['photo'] != null) {
-      photo = json['photo']['photo_300'] ??
-          json['photo']['photo_270'] ??
-          json['photo']['photo_135'];
-    } else if (json['thumbs'] != null && (json['thumbs'] as List).isNotEmpty) {
-      final thumbs = json['thumbs'] as List;
-      photo = thumbs[0]['photo_300'] ??
-          thumbs[0]['photo_270'] ??
-          thumbs[0]['photo_135'];
-    }
+  bool get isOwn => kind == PlaylistKind.own;
 
+  factory Playlist.liked() => Playlist(
+    id: 'liked',
+    title: 'Любимые',
+    count: 0,
+    kind: PlaylistKind.liked,
+  );
+
+  factory Playlist.fromJson(Map<String, dynamic> json) {
     return Playlist(
-      id: json['id'] ?? 0,
-      ownerId: json['owner_id'] ?? 0,
-      title: json['title'] ?? 'Unknown',
-      description: json['description'],
-      photo: photo,
-      count: json['count'] ?? 0,
-      createTime: json['create_time'] ?? 0,
-      updateTime: json['update_time'] ?? 0,
+      id: json['id'] as String,
+      title: json['title'] as String? ?? 'Без названия',
+      count: (json['track_count'] as num?)?.toInt() ?? 0,
+      visibility: json['visibility'] as String? ?? 'private',
     );
   }
 }

@@ -2,7 +2,7 @@ import 'package:hive/hive.dart';
 import '../models/track.dart';
 
 class LibraryIndexService {
-  static const String _boxName = 'library_index';
+  static const String _boxName = 'server_library_index';
   static const String _tracksSuffix = 'my_tracks';
   static const String _updatedAtSuffix = 'updated_at';
 
@@ -12,7 +12,7 @@ class LibraryIndexService {
     _box = await Hive.openBox<Map>(_boxName);
   }
 
-  List<Track> readMyTracks(int userId) {
+  List<Track> readMyTracks(String userId) {
     final raw = _box.get(_tracksKey(userId));
     if (raw == null) return const <Track>[];
 
@@ -23,20 +23,20 @@ class LibraryIndexService {
         .toList(growable: false);
   }
 
-  DateTime? readMyTracksUpdatedAt(int userId) {
+  DateTime? readMyTracksUpdatedAt(String userId) {
     final raw = _box.get(_updatedAtKey(userId));
     final millis = (raw?['value'] as num?)?.toInt();
     if (millis == null || millis <= 0) return null;
     return DateTime.fromMillisecondsSinceEpoch(millis);
   }
 
-  bool readMyTracksIsComplete(int userId) {
+  bool readMyTracksIsComplete(String userId) {
     final raw = _box.get(_updatedAtKey(userId));
     return raw?['is_complete'] == true;
   }
 
   Future<void> writeMyTracks(
-    int userId,
+    String userId,
     List<Track> tracks, {
     required bool isComplete,
   }) async {
@@ -49,11 +49,11 @@ class LibraryIndexService {
     });
   }
 
-  Future<void> clearMyTracks(int userId) async {
+  Future<void> clearMyTracks(String userId) async {
     await _box.delete(_tracksKey(userId));
     await _box.delete(_updatedAtKey(userId));
   }
 
-  String _tracksKey(int userId) => '${userId}_$_tracksSuffix';
-  String _updatedAtKey(int userId) => '${userId}_$_updatedAtSuffix';
+  String _tracksKey(String userId) => '${userId}_$_tracksSuffix';
+  String _updatedAtKey(String userId) => '${userId}_$_updatedAtSuffix';
 }
