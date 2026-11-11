@@ -205,10 +205,10 @@ class ApiService {
   // ---- Accounts ----
 
   Future<void> login(String server, String username, String password) =>
-      _enter('/api/v1/auth/login', server, username, password);
+      _enter('/api/auth/login', server, username, password);
 
   Future<void> register(String server, String username, String password) =>
-      _enter('/api/v1/auth/register', server, username, password);
+      _enter('/api/auth/register', server, username, password);
 
   Future<void> _enter(
     String path,
@@ -231,7 +231,7 @@ class ApiService {
       ),
     );
     await _keepTokens(data as Map<String, dynamic>);
-    final me = await _call(() => _dio.get('/api/v1/me'));
+    final me = await _call(() => _dio.get('/api/me'));
     _userId = me['id'] as String;
     await _store.write(_keyUser, _userId!);
     await _store.write(_keyServer, _serverUrl);
@@ -255,7 +255,7 @@ class ApiService {
     if (refreshToken == null) return;
     try {
       await _authDio.post(
-        '/api/v1/auth/logout',
+        '/api/auth/logout',
         data: {'refresh_token': refreshToken},
       );
     } on DioException {
@@ -309,7 +309,7 @@ class ApiService {
     if (refreshToken == null) return false;
     try {
       final response = await _authDio.post(
-        '/api/v1/auth/refresh',
+        '/api/auth/refresh',
         data: {'refresh_token': refreshToken},
       );
       await _keepTokens(response.data as Map<String, dynamic>);
@@ -325,12 +325,12 @@ class ApiService {
 
   /// Returns the name of the user.
   Future<String> getMe() async {
-    final me = await _call(() => _dio.get('/api/v1/me'));
+    final me = await _call(() => _dio.get('/api/me'));
     return me['username'] as String;
   }
 
   Future<Quota> getQuota() async {
-    final data = await _call(() => _dio.get('/api/v1/me/quota'));
+    final data = await _call(() => _dio.get('/api/me/quota'));
     return Quota(
       (data['used_bytes'] as num).toInt(),
       (data['quota_bytes'] as num).toInt(),
@@ -340,7 +340,7 @@ class ApiService {
   }
 
   Future<List<Device>> getDevices() async {
-    final data = await _call(() => _dio.get('/api/v1/me/devices'));
+    final data = await _call(() => _dio.get('/api/me/devices'));
     final items = (data['items'] as List?) ?? const [];
     return items
         .map(
@@ -355,7 +355,7 @@ class ApiService {
   }
 
   Future<void> logoutDevice(String id) async {
-    await _call(() => _dio.delete('/api/v1/me/devices/$id'));
+    await _call(() => _dio.delete('/api/me/devices/$id'));
   }
 
   // ---- Tracks ----
@@ -405,7 +405,7 @@ class ApiService {
 
   Future<TrackPage> getLibrary({String? cursor, int limit = 50}) async {
     final data = await _call(
-      () => _dio.get('/api/v1/library', queryParameters: _page(cursor, limit)),
+      () => _dio.get('/api/library', queryParameters: _page(cursor, limit)),
     );
     return _trackPage(data);
   }
@@ -417,7 +417,7 @@ class ApiService {
   }) async {
     final data = await _call(
       () => _dio.get(
-        '/api/v1/search',
+        '/api/search',
         queryParameters: {'q': query, ..._page(cursor, limit)},
       ),
     );
@@ -425,16 +425,16 @@ class ApiService {
   }
 
   Future<Track> getTrack(String id) async {
-    final data = await _call(() => _dio.get('/api/v1/tracks/$id'));
+    final data = await _call(() => _dio.get('/api/tracks/$id'));
     return Track.fromJson(data as Map<String, dynamic>);
   }
 
   Future<void> addToLibrary(String trackId) async {
-    await _call(() => _dio.put('/api/v1/library/$trackId'));
+    await _call(() => _dio.put('/api/library/$trackId'));
   }
 
   Future<void> removeFromLibrary(String trackId) async {
-    await _call(() => _dio.delete('/api/v1/library/$trackId'));
+    await _call(() => _dio.delete('/api/library/$trackId'));
   }
 
   /// Fields left null stay as they are. An empty artist or album removes it.
@@ -447,7 +447,7 @@ class ApiService {
   }) async {
     final data = await _call(
       () => _dio.patch(
-        '/api/v1/tracks/$id',
+        '/api/tracks/$id',
         data: {
           'title': ?title,
           'artist': ?artist,
@@ -460,21 +460,21 @@ class ApiService {
   }
 
   Future<void> deleteTrack(String id) async {
-    await _call(() => _dio.delete('/api/v1/tracks/$id'));
+    await _call(() => _dio.delete('/api/tracks/$id'));
   }
 
-  Future<List<Track>> getLikes() => _allPages('/api/v1/me/likes', 'items');
+  Future<List<Track>> getLikes() => _allPages('/api/me/likes', 'items');
 
   Future<void> like(String trackId) async {
-    await _call(() => _dio.put('/api/v1/tracks/$trackId/like'));
+    await _call(() => _dio.put('/api/tracks/$trackId/like'));
   }
 
   Future<void> unlike(String trackId) async {
-    await _call(() => _dio.delete('/api/v1/tracks/$trackId/like'));
+    await _call(() => _dio.delete('/api/tracks/$trackId/like'));
   }
 
   Future<void> reportPlay(String trackId) async {
-    await _call(() => _dio.post('/api/v1/tracks/$trackId/play'));
+    await _call(() => _dio.post('/api/tracks/$trackId/play'));
   }
 
   // ---- Playlists and albums ----
@@ -485,7 +485,7 @@ class ApiService {
     do {
       final data = await _call(
         () =>
-            _dio.get('/api/v1/playlists', queryParameters: _page(cursor, 200)),
+            _dio.get('/api/playlists', queryParameters: _page(cursor, 200)),
       );
       final items = (data['items'] as List?) ?? const [];
       playlists.addAll(
@@ -498,32 +498,32 @@ class ApiService {
 
   Future<Playlist> createPlaylist(String title) async {
     final data = await _call(
-      () => _dio.post('/api/v1/playlists', data: {'title': title}),
+      () => _dio.post('/api/playlists', data: {'title': title}),
     );
     return Playlist.fromJson(data as Map<String, dynamic>);
   }
 
   Future<void> renamePlaylist(String id, String title) async {
     await _call(
-      () => _dio.patch('/api/v1/playlists/$id', data: {'title': title}),
+      () => _dio.patch('/api/playlists/$id', data: {'title': title}),
     );
   }
 
   Future<void> deletePlaylist(String id) async {
-    await _call(() => _dio.delete('/api/v1/playlists/$id'));
+    await _call(() => _dio.delete('/api/playlists/$id'));
   }
 
   Future<void> removeFromPlaylist(String playlistId, String trackId) async {
     await _call(
-      () => _dio.delete('/api/v1/playlists/$playlistId/tracks/$trackId'),
+      () => _dio.delete('/api/playlists/$playlistId/tracks/$trackId'),
     );
   }
 
   Future<List<Track>> getPlaylistTracks(String playlistId) =>
-      _allPages('/api/v1/playlists/$playlistId', 'tracks');
+      _allPages('/api/playlists/$playlistId', 'tracks');
 
   Future<List<Track>> getAlbumTracks(String albumId) =>
-      _allPages('/api/v1/albums/$albumId', 'items');
+      _allPages('/api/albums/$albumId', 'items');
 
   Future<List<Track>> _allPages(String path, String field) async {
     final tracks = <Track>[];
@@ -542,7 +542,7 @@ class ApiService {
   Future<void> addTrackToPlaylist(String playlistId, String trackId) async {
     await _call(
       () => _dio.post(
-        '/api/v1/playlists/$playlistId/tracks',
+        '/api/playlists/$playlistId/tracks',
         data: {'track_id': trackId},
       ),
     );
@@ -560,7 +560,7 @@ class ApiService {
     final hash = await sha256.bind(file.openRead()).first;
     final session = await _call(
       () => _dio.post(
-        '/api/v1/uploads',
+        '/api/uploads',
         data: {
           'filename': file.uri.pathSegments.last,
           'size': size,
@@ -586,7 +586,7 @@ class ApiService {
     }
 
     final track = await _call(
-      () => _dio.post('/api/v1/uploads/$uploadId/complete'),
+      () => _dio.post('/api/uploads/$uploadId/complete'),
     );
     return Track.fromJson(track as Map<String, dynamic>);
   }
@@ -596,7 +596,7 @@ class ApiService {
     for (var attempt = 1; ; attempt++) {
       try {
         final response = await _dio.patch(
-          '/api/v1/uploads/$uploadId',
+          '/api/uploads/$uploadId',
           data: chunk,
           options: Options(
             sendTimeout: const Duration(minutes: 5),

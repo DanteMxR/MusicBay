@@ -186,7 +186,7 @@ void main() {
       expect(again.isAuthorized, false);
       await expectLater(
         Dio().post(
-          '$server/api/v1/auth/refresh',
+          '$server/api/auth/refresh',
           data: {'refresh_token': refresh},
         ),
         throwsA(isA<DioException>()),
