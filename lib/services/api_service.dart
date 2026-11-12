@@ -116,6 +116,11 @@ class ApiService {
     'invalid_query': 'Запрос: до 200 символов',
     'client_outdated': 'Обновите приложение',
     'rate_limited': 'Слишком много запросов, подождите немного',
+    'upload_expired': 'Загрузка длилась слишком долго, начните её заново',
+    'upload_rejected': 'Сервер не принял этот файл',
+    'upload_overflow': 'Файл изменился во время загрузки',
+    'invalid_filename': 'Имя файла: до 500 символов',
+    'device_not_found': 'Устройство уже вышло',
   };
 
   final SessionStore _store;
@@ -484,8 +489,7 @@ class ApiService {
     String? cursor;
     do {
       final data = await _call(
-        () =>
-            _dio.get('/api/playlists', queryParameters: _page(cursor, 200)),
+        () => _dio.get('/api/playlists', queryParameters: _page(cursor, 200)),
       );
       final items = (data['items'] as List?) ?? const [];
       playlists.addAll(
@@ -504,9 +508,7 @@ class ApiService {
   }
 
   Future<void> renamePlaylist(String id, String title) async {
-    await _call(
-      () => _dio.patch('/api/playlists/$id', data: {'title': title}),
-    );
+    await _call(() => _dio.patch('/api/playlists/$id', data: {'title': title}));
   }
 
   Future<void> deletePlaylist(String id) async {
@@ -613,7 +615,14 @@ class ApiService {
         if (error.code == 'offset_mismatch') {
           return int.parse(error.details['upload_offset'].toString());
         }
-        if (!error.isNetwork || attempt >= _chunkAttempts) throw error;
+        // After these the same offset is sent again, and the server answers with the real one.
+        final retry =
+            error.isNetwork ||
+            error.code == 'upload_interrupted' ||
+            error.code == 'upload_locked';
+        if (!retry || attempt >= _chunkAttempts) throw error;
+        // A request cut off on the way may still hold the upload on the server for a moment.
+        await Future<void>.delayed(Duration(seconds: attempt));
       }
     }
   }
